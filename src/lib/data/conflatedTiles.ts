@@ -1,0 +1,315 @@
+// SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch>
+// SPDX-License-Identifier: MIT
+
+// Everything the app knows about the format of conflated.pmtiles, as
+// described in https://github.com/brawer/osmdiffs/blob/main/docs/outputs/CONFLATED_TILES.md.
+// The pipeline calls the file a debugging aid whose shape may change
+// without notice, so its layer names, property names and join rules all
+// live here: a format change should touch this file and no other.
+//
+// In short: two layers, `matched` and `unmatched`. At z0–12 ("overview")
+// each row is one feature with only `spider`, `relation`, `importance`
+// and, where there is an OpenStreetMap side, `osm:type`/`osm:id`. At
+// z13–16 ("detail") a row splits into up to three features that share a
+// per-run `fid`: the AllThePlaces point (`part: "atp"`), the OSM shape
+// (`part: "osm"`, or `"host"` for located_in rows) and a connector line
+// (`part: "link"`), carrying the full `atp:*` and `osm:*` tags.
+
+import { VectorTile } from '@mapbox/vector-tile';
+import type { Geometry, Position } from 'geojson';
+import { PbfReader } from 'pbf';
+import { PMTiles } from 'pmtiles';
+import type { OsmType, Selection } from '../route.ts';
+
+export const MATCHED_LAYER = 'matched';
+export const UNMATCHED_LAYER = 'unmatched';
+export const SOURCE_LAYERS = [MATCHED_LAYER, UNMATCHED_LAYER] as const;
+
+// The first zoom with full tags; below it, the overview.
+export const DETAIL_ZOOM = 13;
+
+// The relations the app has colours and words for. The pipeline may add
+// more, which the app shows as "other". deletion_candidate rows have no
+// AllThePlaces side and so aren't in conflated.pmtiles at all.
+export const KNOWN_RELATIONS = ['same', 'missing_in_osm', 'located_in'] as const;
+export type KnownRelation = (typeof KNOWN_RELATIONS)[number];
+
+export function isKnownRelation(relation: string): relation is KnownRelation {
+  return (KNOWN_RELATIONS as readonly string[]).includes(relation);
+}
+
+export type Properties = Record<string, string | number | boolean>;
+
+// What the map's own rendered feature says about a row, at any zoom.
+export interface OverviewFacts {
+  relation: string;
+  spider: string;
+  importance?: number;
+  osm?: { type: OsmType; id: number };
+}
+
+// One conflated.parquet row, put back together from its detail features.
+export interface ConflatedRecord {
+  relation: string;
+  spider: string;
+  // Tags without their "atp:" or "osm:" prefix.
+  atpTags: Record<string, string>;
+  osmTags: Record<string, string>;
+  // Where AllThePlaces puts the place, as [lng, lat].
+  atpPosition?: Position;
+  osm?: { type: OsmType; id: number };
+  // The connector line's length; undefined when there is no line, which
+  // the pipeline omits for offsets under 5 m.
+  offsetMeters?: number;
+}
+
+const OSM_TYPES: readonly string[] = ['node', 'way', 'relation'];
+
+function osmRef(props: Properties): { type: OsmType; id: number } | undefined {
+  const type = props['osm:type'];
+  const id = props['osm:id'];
+  if (typeof type !== 'string' || !OSM_TYPES.includes(type) || typeof id !== 'number') return undefined;
+  return { type: type as OsmType, id };
+}
+
+export function overviewFacts(props: Properties): OverviewFacts {
+  const facts: OverviewFacts = {
+    relation: String(props.relation ?? ''),
+    spider: String(props.spider ?? ''),
+  };
+  if (typeof props.importance === 'number') facts.importance = props.importance;
+  const osm = osmRef(props);
+  if (osm) facts.osm = osm;
+  return facts;
+}
+
+// What clicking a feature selects. A matched row is the OpenStreetMap
+// object. Everything else, including a located_in row, whose OSM ID
+// belongs to its host and is shared with every other store inside it, is
+// the AllThePlaces place at the given position.
+export function selectionFor(facts: OverviewFacts, position: Position): Selection {
+  if (facts.relation === 'same' && facts.osm) return { kind: 'osm', ...facts.osm };
+  return { kind: 'atp', spider: facts.spider, lng: position[0]!, lat: position[1]! };
+}
+
+// A decoded detail-tile feature.
+export interface TileFeature {
+  layer: string;
+  properties: Properties;
+  // Decodes the geometry into longitude and latitude; only called for
+  // the few features a lookup is interested in.
+  geometry: () => Geometry;
+}
+
+export function decodeTile(data: ArrayBuffer | Uint8Array, x: number, y: number, z: number): TileFeature[] {
+  const tile = new VectorTile(new PbfReader(data instanceof Uint8Array ? data : new Uint8Array(data)));
+  const features: TileFeature[] = [];
+  for (const name of SOURCE_LAYERS) {
+    const layer = tile.layers[name];
+    if (!layer) continue;
+    for (let i = 0; i < layer.length; i++) {
+      const feature = layer.feature(i);
+      features.push({ layer: name, properties: feature.properties, geometry: () => feature.toGeoJSON(x, y, z).geometry });
+    }
+  }
+  return features;
+}
+
+// The tile at `zoom` that contains a position.
+export function tileFor(lng: number, lat: number, zoom: number): [number, number] {
+  const n = 2 ** zoom;
+  const x = Math.floor(((lng + 180) / 360) * n);
+  const rad = (lat * Math.PI) / 180;
+  const y = Math.floor(((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n);
+  const clamp = (v: number) => Math.min(n - 1, Math.max(0, v));
+  return [clamp(x), clamp(y)];
+}
+
+// The 3×3 block of detail tiles around a position. A matched shape can be
+// large enough (a retail park, say) for its AllThePlaces point to sit in a
+// neighbouring tile. Wraps around the antimeridian; drops rows past the poles.
+export function detailBlock(lng: number, lat: number): [number, number, number][] {
+  const n = 2 ** DETAIL_ZOOM;
+  const [cx, cy] = tileFor(lng, lat, DETAIL_ZOOM);
+  const tiles: [number, number, number][] = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    const y = cy + dy;
+    if (y < 0 || y >= n) continue;
+    for (let dx = -1; dx <= 1; dx++) {
+      tiles.push([DETAIL_ZOOM, (((cx + dx) % n) + n) % n, y]);
+    }
+  }
+  return tiles;
+}
+
+// Great-circle distance in meters.
+export function distanceMeters(a: Position, b: Position): number {
+  const R = 6371008.8;
+  const rad = Math.PI / 180;
+  const dLat = (b[1]! - a[1]!) * rad;
+  const dLng = (b[0]! - a[0]!) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1]! * rad) * Math.cos(b[1]! * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function lineLength(geometry: Geometry): number | undefined {
+  if (geometry.type !== 'LineString') return undefined;
+  let total = 0;
+  for (let i = 1; i < geometry.coordinates.length; i++) {
+    total += distanceMeters(geometry.coordinates[i - 1]!, geometry.coordinates[i]!);
+  }
+  return total;
+}
+
+function prefixed(props: Properties, prefix: string): Record<string, string> {
+  const tags: Record<string, string> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (key.startsWith(prefix) && key !== 'osm:type' && key !== 'osm:id') {
+      tags[key.slice(prefix.length)] = String(value);
+    }
+  }
+  return tags;
+}
+
+// Builds one record from the detail features that share a fid.
+function assemble(parts: TileFeature[]): ConflatedRecord {
+  const first = parts[0]!.properties;
+  const record: ConflatedRecord = {
+    relation: String(first.relation ?? ''),
+    spider: String(first.spider ?? ''),
+    atpTags: {},
+    osmTags: {},
+  };
+  for (const part of parts) {
+    const props = part.properties;
+    switch (props.part) {
+      case 'atp': {
+        record.atpTags = prefixed(props, 'atp:');
+        const geometry = part.geometry();
+        if (geometry.type === 'Point') record.atpPosition = geometry.coordinates;
+        break;
+      }
+      case 'osm':
+      case 'host': {
+        record.osmTags = prefixed(props, 'osm:');
+        const osm = osmRef(props);
+        if (osm) record.osm = osm;
+        break;
+      }
+      case 'link': {
+        const length = lineLength(part.geometry());
+        if (length !== undefined) record.offsetMeters = length;
+        // The link carries both sides' tags; use them if the end features
+        // fell outside the searched tiles.
+        if (Object.keys(record.atpTags).length === 0) record.atpTags = prefixed(props, 'atp:');
+        if (Object.keys(record.osmTags).length === 0) record.osmTags = prefixed(props, 'osm:');
+        const osm = osmRef(props);
+        if (osm && !record.osm) record.osm = osm;
+        break;
+      }
+    }
+  }
+  return record;
+}
+
+// The same feature shows up in every tile whose buffer it overlaps, so
+// group by fid and keep one feature per part.
+function groupByFid(features: TileFeature[], fids: Set<number>): TileFeature[][] {
+  const groups = new Map<number, Map<string, TileFeature>>();
+  for (const f of features) {
+    const fid = f.properties.fid;
+    if (typeof fid !== 'number' || !fids.has(fid)) continue;
+    let parts = groups.get(fid);
+    if (!parts) groups.set(fid, (parts = new Map()));
+    const part = String(f.properties.part);
+    if (!parts.has(part)) parts.set(part, f);
+  }
+  return [...fids].flatMap((fid) => {
+    const parts = groups.get(fid);
+    return parts ? [[...parts.values()]] : [];
+  });
+}
+
+// Whether a record has both of its sides: a matched or located_in row
+// whose AllThePlaces point or OpenStreetMap shape sits in another tile
+// lacks one.
+export function isComplete(record: ConflatedRecord): boolean {
+  const needsOsm = record.relation === 'same' || record.relation === 'located_in';
+  return record.atpPosition !== undefined && (!needsOsm || record.osm !== undefined);
+}
+
+// Finds the records for a selection among the features of the detail
+// tiles around it. An OpenStreetMap selection yields every row matched to
+// that object (usually one); an AllThePlaces selection yields the row of
+// the nearest AllThePlaces point of the same spider, or nothing.
+export function findRecords(features: TileFeature[], selection: Selection): ConflatedRecord[] {
+  const fids = new Set<number>();
+  if (selection.kind === 'osm') {
+    for (const f of features) {
+      const p = f.properties;
+      if (f.layer === MATCHED_LAYER && p['osm:type'] === selection.type && p['osm:id'] === selection.id) {
+        if (typeof p.fid === 'number') fids.add(p.fid);
+      }
+    }
+  } else {
+    let best: { fid: number; distance: number } | undefined;
+    const target: Position = [selection.lng, selection.lat];
+    for (const f of features) {
+      const p = f.properties;
+      if (p.part !== 'atp' || p.spider !== selection.spider || typeof p.fid !== 'number') continue;
+      const geometry = f.geometry();
+      if (geometry.type !== 'Point') continue;
+      const distance = distanceMeters(target, geometry.coordinates);
+      if (!best || distance < best.distance) best = { fid: p.fid, distance };
+    }
+    if (best) fids.add(best.fid);
+  }
+  return groupByFid(features, fids).map(assemble);
+}
+
+// One opened conflated.pmtiles archive. The map's `pmtiles://` source and
+// the detail lookups share it, and with it the archive's header and
+// directory caches.
+export class ConflatedTiles {
+  readonly archive: PMTiles;
+  private readonly decoded = new Map<string, Promise<TileFeature[]>>();
+
+  constructor(url: string) {
+    this.archive = new PMTiles(url);
+  }
+
+  get sourceUrl(): string {
+    return `pmtiles://${this.archive.source.getKey()}`;
+  }
+
+  private tile(z: number, x: number, y: number): Promise<TileFeature[]> {
+    const key = `${z}/${x}/${y}`;
+    let tile = this.decoded.get(key);
+    if (!tile) {
+      tile = this.archive
+        .getZxy(z, x, y)
+        .then((res) => (res ? decodeTile(res.data, x, y, z) : []))
+        .catch((err: unknown) => {
+          this.decoded.delete(key);
+          throw err;
+        });
+      this.decoded.set(key, tile);
+      // Keep the last few blocks' worth; a z13 tile can decode to a few
+      // thousand features.
+      if (this.decoded.size > 36) this.decoded.delete(this.decoded.keys().next().value!);
+    }
+    return tile;
+  }
+
+  // Looks a selection up in the detail tiles around `near`: first the one
+  // tile under it, which in a dense city can be a few hundred kilobytes,
+  // and only if that doesn't hold the whole record, the 3×3 block.
+  async lookup(selection: Selection, near: Position): Promise<ConflatedRecord[]> {
+    const [lng, lat] = near as [number, number];
+    const [x, y] = tileFor(lng, lat, DETAIL_ZOOM);
+    const records = findRecords(await this.tile(DETAIL_ZOOM, x, y), selection);
+    if (records.length > 0 && records.every(isComplete)) return records;
+    const tiles = await Promise.all(detailBlock(lng, lat).map(([z, x, y]) => this.tile(z, x, y)));
+    return findRecords(tiles.flat(), selection);
+  }
+}
