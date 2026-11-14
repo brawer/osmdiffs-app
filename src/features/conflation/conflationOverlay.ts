@@ -34,16 +34,21 @@ export interface ConflationOptions {
   selection: Selection | undefined;
   // Where the selected place is, as [lng, lat], once known.
   selectedPosition: [number, number] | undefined;
+  // The selected row's relation, and the fids of its rows, once known.
+  selectedRelation?: string | undefined;
+  selectedFids?: readonly number[] | undefined;
+  // How important the selected row is, which sets its dot's size.
+  selectedImportance?: number | undefined;
   // Draws only this spider's features, for its spider page.
   spider?: string | undefined;
 }
 
-function relationColor(colors: MapColors): ExpressionSpecification {
+function relationColor(relation: MapColors['relation']): ExpressionSpecification {
   return [
     'match',
     ['get', 'relation'],
-    ...KNOWN_RELATIONS.flatMap((r) => [r, colors.relation[r]]),
-    colors.relation.other,
+    ...KNOWN_RELATIONS.flatMap((r) => [r, relation[r]]),
+    relation.other,
   ] as unknown as ExpressionSpecification;
 }
 
@@ -58,142 +63,153 @@ function visible(hidden: ReadonlySet<KnownRelation>, spider: string | undefined)
 }
 
 // Dots grow with zoom, and the most important rows a little more.
-const OVERVIEW_RADIUS: ExpressionSpecification = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  0,
-  ['+', 1.2, ['*', 1.3, ['to-number', ['get', 'importance'], 0]]],
-  6,
-  ['+', 1.8, ['*', 1.5, ['to-number', ['get', 'importance'], 0]]],
-  12,
-  ['+', 2.5, ['*', 1.5, ['to-number', ['get', 'importance'], 0]]],
-];
+const OVERVIEW_RADIUS_STOPS = [
+  [0, 1.2, 1.3],
+  [6, 1.8, 1.5],
+  [12, 2.5, 1.5],
+] as const;
 
-function layersFor(sourceLayer: string, options: ConflationOptions, colors: MapColors): LayerSpecification[] {
-  const color = relationColor(colors);
+function overviewRadiusStops(extra: number): (number | ExpressionSpecification)[] {
+  return OVERVIEW_RADIUS_STOPS.flatMap(([zoom, base, scale]) => [
+    zoom,
+    ['+', base + extra, ['*', scale, ['to-number', ['get', 'importance'], 0]]] as ExpressionSpecification,
+  ]);
+}
+
+function overviewRadius(extra: number): ExpressionSpecification {
+  return ['interpolate', ['linear'], ['zoom'], ...overviewRadiusStops(extra)] as ExpressionSpecification;
+}
+
+// How a set of layers is drawn. `normal` when nothing is selected;
+// `dimmed` for everything while something is; `selected` redraws the
+// selected row on top, in full colour and a little larger.
+type Mode = 'normal' | 'dimmed' | 'selected';
+
+function layersFor(
+  sourceLayer: string,
+  options: ConflationOptions,
+  colors: MapColors,
+  mode: Mode,
+  only?: ExpressionSpecification,
+): LayerSpecification[] {
+  const color = relationColor(mode === 'dimmed' ? colors.dimmed.relation : colors.relation);
+  const link = mode === 'dimmed' ? colors.dimmed.link : colors.link;
   const show = visible(options.hidden, options.spider);
   const base = { source: SOURCE_ID, 'source-layer': sourceLayer } as const;
+  const id = (name: string) => (mode === 'selected' ? `selected-${sourceLayer}-${name}` : `${sourceLayer}-${name}`);
   const all = (...conditions: ExpressionSpecification[]): FilterSpecification =>
-    ['all', show, ...conditions] as FilterSpecification;
+    ['all', show, ...(only ? [only] : []), ...conditions] as FilterSpecification;
+  const big = mode === 'selected';
   return [
     // Overview, z0–12.
     {
       ...base,
-      id: `${sourceLayer}-overview-fill`,
+      id: id('overview-fill'),
       type: 'fill',
       maxzoom: DETAIL_ZOOM,
       filter: all(isPolygon),
-      paint: { 'fill-color': color, 'fill-opacity': 0.35 },
+      paint: { 'fill-color': color, 'fill-opacity': big ? 0.5 : 0.35 },
     },
     {
       ...base,
-      id: `${sourceLayer}-overview-line`,
+      id: id('overview-line'),
       type: 'line',
       maxzoom: DETAIL_ZOOM,
       filter: all(['any', isLine, isPolygon]),
-      paint: { 'line-color': color, 'line-width': 1 },
+      paint: { 'line-color': color, 'line-width': big ? 2 : 1 },
     },
     {
       ...base,
-      id: `${sourceLayer}-overview-dot`,
+      id: id('overview-dot'),
       type: 'circle',
       maxzoom: DETAIL_ZOOM,
       filter: all(isPoint),
       paint: {
         'circle-color': color,
-        'circle-radius': OVERVIEW_RADIUS,
+        'circle-radius': overviewRadius(big ? 3 : 0),
         'circle-stroke-color': colors.halo,
-        'circle-stroke-width': 0.6,
+        'circle-stroke-width': big ? 2 : 0.6,
       },
     },
     // Detail, z13–16: the OpenStreetMap side first, so the AllThePlaces
     // point lands on top of it.
     {
       ...base,
-      id: `${sourceLayer}-osm-fill`,
+      id: id('osm-fill'),
       type: 'fill',
       minzoom: DETAIL_ZOOM,
       filter: all(isOsmShape, isPolygon),
-      paint: { 'fill-color': color, 'fill-opacity': 0.12 },
+      paint: { 'fill-color': color, 'fill-opacity': big ? 0.25 : 0.12 },
     },
     {
       ...base,
-      id: `${sourceLayer}-osm-line`,
+      id: id('osm-line'),
       type: 'line',
       minzoom: DETAIL_ZOOM,
       filter: all(isOsmShape, ['any', isLine, isPolygon]),
-      paint: { 'line-color': color, 'line-width': 1.5 },
+      paint: { 'line-color': color, 'line-width': big ? 2.5 : 1.5 },
     },
     {
       ...base,
-      id: `${sourceLayer}-link`,
+      id: id('link'),
       type: 'line',
       minzoom: DETAIL_ZOOM,
       filter: all(['==', ['get', 'part'], 'link']),
       layout: { 'line-cap': 'round' },
-      paint: { 'line-color': colors.link, 'line-width': 1.2, 'line-dasharray': [2, 2] },
+      paint: { 'line-color': link, 'line-width': big ? 1.6 : 1.2, 'line-dasharray': [2, 2] },
     },
     // An OSM node: a ring, so it reads as "OpenStreetMap's", unlike the
     // filled AllThePlaces dot.
     {
       ...base,
-      id: `${sourceLayer}-osm-node`,
+      id: id('osm-node'),
       type: 'circle',
       minzoom: DETAIL_ZOOM,
       filter: all(isOsmShape, isPoint),
       paint: {
         'circle-color': 'rgba(0, 0, 0, 0)',
-        'circle-radius': 6,
+        'circle-radius': big ? 8 : 6,
         'circle-stroke-color': color,
-        'circle-stroke-width': 2,
+        'circle-stroke-width': big ? 2.5 : 2,
       },
     },
     {
       ...base,
-      id: `${sourceLayer}-atp`,
+      id: id('atp'),
       type: 'circle',
       minzoom: DETAIL_ZOOM,
       filter: all(['==', ['get', 'part'], 'atp']),
       paint: {
         'circle-color': color,
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 4, 16, 6],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, big ? 6 : 4, 16, big ? 8 : 6],
         'circle-stroke-color': colors.halo,
-        'circle-stroke-width': 1.2,
+        'circle-stroke-width': big ? 1.5 : 1.2,
       },
     },
   ];
 }
 
-// Outlines the selected OpenStreetMap object wherever the tiles draw it.
-function osmSelectionLayers(selection: Selection | undefined, colors: MapColors): LayerSpecification[] {
-  const filter: ExpressionSpecification =
-    selection?.kind === 'osm'
-      ? ['all', ['==', ['get', 'osm:type'], selection.type], ['==', ['get', 'osm:id'], selection.id]]
-      : ['literal', false];
-  const notLink: ExpressionSpecification = ['!=', ['get', 'part'], 'link'];
-  const base = { source: SOURCE_ID, 'source-layer': MATCHED_LAYER } as const;
-  return [
-    {
-      ...base,
-      id: 'selected-osm-line',
-      type: 'line',
-      filter: ['all', filter, notLink, ['any', isLine, isPolygon]] as FilterSpecification,
-      paint: { 'line-color': colors.selection, 'line-width': 3 },
-    },
-    {
-      ...base,
-      id: 'selected-osm-node',
-      type: 'circle',
-      filter: ['all', filter, notLink, isPoint] as FilterSpecification,
-      paint: {
-        'circle-color': 'rgba(0, 0, 0, 0)',
-        'circle-radius': 9,
-        'circle-stroke-color': colors.selection,
-        'circle-stroke-width': 2.5,
-      },
-    },
-  ];
+// Which tile features belong to the selected rows, if the tiles can tell.
+// A matched OpenStreetMap object is known by its ID at every zoom (only
+// on `same` rows: a located_in row carries its host's ID). In the detail
+// tiles, though, only the OSM shape and link carry that ID; every part
+// of a row carries its fid, known once the rows are looked up. Below the
+// detail tiles, an AllThePlaces place is drawn from its position instead.
+function selectedFilter(options: ConflationOptions): ExpressionSpecification | undefined {
+  const selection = options.selection;
+  const fids = options.selectedFids ?? [];
+  const byFid: ExpressionSpecification | undefined =
+    fids.length > 0 ? ['in', ['get', 'fid'], ['literal', [...fids]]] : undefined;
+  if (selection?.kind === 'osm') {
+    const byOsm: ExpressionSpecification = [
+      'all',
+      ['==', ['get', 'relation'], 'same'],
+      ['==', ['get', 'osm:type'], selection.type],
+      ['==', ['get', 'osm:id'], selection.id],
+    ];
+    return byFid ? ['any', byOsm, byFid] : byOsm;
+  }
+  return selection ? byFid : undefined;
 }
 
 export const INTERACTIVE_LAYER_IDS = SOURCE_LAYERS.flatMap((l) => [
@@ -207,35 +223,50 @@ export const INTERACTIVE_LAYER_IDS = SOURCE_LAYERS.flatMap((l) => [
 ]);
 
 export function conflationOverlay(options: ConflationOptions): Overlay {
-  const position = options.selectedPosition;
+  const selection = options.selection;
+  // An AllThePlaces place, drawn from where it is: the overview tiles
+  // can't single it out, and the detail tiles only once its fid is known.
+  const position = selection?.kind === 'atp' ? options.selectedPosition : undefined;
+  const relation = options.selectedRelation;
+  const importance = options.selectedImportance ?? 0;
+  const point =
+    position && relation !== undefined && !options.hidden.has(relation as KnownRelation)
+      ? [{ type: 'Feature' as const, properties: { relation, importance }, geometry: { type: 'Point' as const, coordinates: position } }]
+      : [];
   const sources: Record<string, SourceSpecification> = {
     [SOURCE_ID]: { type: 'vector', url: options.sourceUrl },
-    [SELECTION_SOURCE_ID]: {
-      type: 'geojson',
-      data: {
-        type: 'FeatureCollection',
-        features: position ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: position } }] : [],
-      },
-    },
+    [SELECTION_SOURCE_ID]: { type: 'geojson', data: { type: 'FeatureCollection', features: point } },
   };
+  const mode: Mode = selection ? 'dimmed' : 'normal';
+  const only = selectedFilter(options);
   return {
     sources,
     interactiveLayerIds: INTERACTIVE_LAYER_IDS,
     layers: (colors) => [
       // Matched rows at the bottom and unmatched ones on top, since places
       // missing from OpenStreetMap are what a mapper looks for.
-      ...layersFor(MATCHED_LAYER, options, colors),
-      ...SOURCE_LAYERS.filter((l) => l !== MATCHED_LAYER).flatMap((l) => layersFor(l, options, colors)),
-      ...osmSelectionLayers(options.selection, colors),
+      ...layersFor(MATCHED_LAYER, options, colors, mode),
+      ...SOURCE_LAYERS.filter((l) => l !== MATCHED_LAYER).flatMap((l) => layersFor(l, options, colors, mode)),
+      ...(only ? SOURCE_LAYERS.flatMap((l) => layersFor(l, options, colors, 'selected', only)) : []),
       {
         id: 'selected-position',
         type: 'circle',
         source: SELECTION_SOURCE_ID,
         paint: {
-          'circle-color': 'rgba(0, 0, 0, 0)',
-          'circle-radius': 11,
-          'circle-stroke-color': colors.selection,
-          'circle-stroke-width': 2.5,
+          'circle-color': relationColor(colors.relation),
+          // Like a selected dot of the overview, then of the detail.
+          'circle-radius': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            ...overviewRadiusStops(3),
+            DETAIL_ZOOM,
+            6,
+            16,
+            8,
+          ] as ExpressionSpecification,
+          'circle-stroke-color': colors.halo,
+          'circle-stroke-width': ['step', ['zoom'], 2, DETAIL_ZOOM, 1.5],
         },
       },
     ],

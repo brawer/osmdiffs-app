@@ -132,6 +132,10 @@ export default function App() {
     click?.position ??
     (selection?.kind === 'atp' ? [selection.lng, selection.lat] : undefined);
   const [selLng, selLat] = selectedPosition ?? [];
+  const selRelation = firstRecord?.relation ?? click?.facts.relation;
+  const selFids = detail.status === 'ready' ? detail.records.flatMap((r) => (r.fid === undefined ? [] : [r.fid])) : [];
+  const selFidsKey = selFids.join(',');
+  const selImportance = click?.facts.importance;
 
   const view = route.view;
   const spider = view.kind === 'spider' ? view.spider : undefined;
@@ -238,12 +242,15 @@ export default function App() {
             hidden,
             selection: getRoute().selection,
             selectedPosition: selLng !== undefined && selLat !== undefined ? [selLng, selLat] : undefined,
+            selectedRelation: selRelation,
+            selectedFids: selFids,
+            selectedImportance: selImportance,
             spider,
           })
         : null,
-    // The selection is compared by value, through its key.
+    // The selection and its fids are compared by value, through keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tiles, hidden, selectionKey, selLng, selLat, spider],
+    [tiles, hidden, selectionKey, selLng, selLat, selRelation, selFidsKey, selImportance, spider],
   );
 
   const onCameraChange = useCallback((camera: Camera) => {
