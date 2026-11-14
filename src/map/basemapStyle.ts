@@ -21,21 +21,25 @@ import { cssVar } from '../lib/theme.ts';
 const OPENFREEMAP_TILES = 'https://tiles.openfreemap.org/planet';
 const OPENFREEMAP_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
 
-// Labels are set in Karla, the app's own font, for the Latin script, and
-// in OpenFreeMap's Noto Sans for everything else. MapLibre draws a
-// character from the style's `font-faces` file when one covers it, and
-// otherwise falls back to the glyph server's pre-rendered Noto. The name
-// stays "Noto Sans Regular" because that is the font stack the fallback
-// requests from OpenFreeMap. The file is the same self-hosted Karla the
-// page uses (public/fonts/), so the browser loads it once for both.
-// Karla's own italic isn't self-hosted, so water names, which used to be
-// italic, are upright too.
+// Labels are set in Karla, the app's own font, wherever it has the
+// glyphs, and in OpenFreeMap's Noto Sans for everything else. MapLibre
+// draws a character from the style's `font-faces` files when one covers
+// it, and otherwise falls back to the glyph server's pre-rendered Noto.
+// The names stay "Noto Sans Regular" and "Noto Sans Italic" because those
+// are the font stacks the fallback requests from OpenFreeMap. Water
+// names are italic, as on most maps.
+//
+// Karla covers only the Latin script: Google Fonts cuts it into a
+// "latin" and a "latin-ext" subset, and we self-host both (public/fonts/),
+// so that names such as "Česko" or "Łódź" don't switch fonts mid-word.
+// Cyrillic, Greek, CJK and the rest come from Noto. The upright "latin"
+// file is the one the page uses too, so the browser loads it once for
+// both; the other three are for the map only. Ranges are from Google
+// Fonts' @font-face rules (fonts.googleapis.com/css2?family=Karla:ital,
+// wght@0,200..800;1,200..800).
 const FONT = ['Noto Sans Regular'];
-const KARLA_URL = '/fonts/karla-latin-variable.woff2';
-// The "latin" subset this file was cut to, from Google Fonts' @font-face
-// rule for it (see theme.css). Characters outside it, such as the "č" in
-// "Česko", come from Noto.
-const KARLA_UNICODE_RANGE = [
+const FONT_ITALIC = ['Noto Sans Italic'];
+const LATIN = [
   'U+0000-00FF',
   'U+0131',
   'U+0152-0153',
@@ -56,6 +60,33 @@ const KARLA_UNICODE_RANGE = [
   'U+FEFF',
   'U+FFFD',
 ];
+const LATIN_EXT = [
+  'U+0100-02BA',
+  'U+02BD-02C5',
+  'U+02C7-02CC',
+  'U+02CE-02D7',
+  'U+02DD-02FF',
+  'U+0304',
+  'U+0308',
+  'U+0329',
+  'U+1D00-1DBF',
+  'U+1E00-1E9F',
+  'U+1EF2-1EFF',
+  'U+2020',
+  'U+20A0-20AB',
+  'U+20AD-20C4',
+  'U+2113',
+  'U+2C60-2C7F',
+  'U+A720-A7FF',
+];
+
+function karlaFaces(origin: string, italic: boolean) {
+  const prefix = italic ? '/fonts/karla-italic-' : '/fonts/karla-';
+  return [
+    { url: new URL(`${prefix}latin-variable.woff2`, origin).href, 'unicode-range': LATIN },
+    { url: new URL(`${prefix}latin-ext-variable.woff2`, origin).href, 'unicode-range': LATIN_EXT },
+  ];
+}
 
 export interface BasemapColors {
   land: string;
@@ -128,14 +159,15 @@ function roadWidth(stops: [number, number][], extra = 0): ExpressionSpecificatio
   return ['interpolate', ['exponential', 1.5], ['zoom'], ...stops.flatMap(([z, w]) => [z, w + extra])];
 }
 
-// `origin` resolves the self-hosted font's URL; MapLibre fetches font
-// files itself and needs an absolute one.
+// `origin` resolves the self-hosted fonts' URLs; MapLibre fetches font
+// files itself and needs absolute ones.
 export function basemapStyle(c: BasemapColors = FALLBACK, origin = 'https://osmdiffs.brawer.ch'): StyleSpecification {
   return {
     version: 8,
     glyphs: OPENFREEMAP_GLYPHS,
     'font-faces': {
-      [FONT[0]!]: [{ url: new URL(KARLA_URL, origin).href, 'unicode-range': KARLA_UNICODE_RANGE }],
+      [FONT[0]!]: karlaFaces(origin, false),
+      [FONT_ITALIC[0]!]: karlaFaces(origin, true),
     },
     sources: {
       openmaptiles: { type: 'vector', url: OPENFREEMAP_TILES },
@@ -242,7 +274,7 @@ export function basemapStyle(c: BasemapColors = FALLBACK, origin = 'https://osmd
         type: 'symbol',
         source: 'openmaptiles',
         'source-layer': 'water_name',
-        layout: { 'text-field': NAME, 'text-font': FONT, 'text-size': 12 },
+        layout: { 'text-field': NAME, 'text-font': FONT_ITALIC, 'text-size': 12 },
         paint: { 'text-color': c.label, 'text-halo-color': c.labelHalo, 'text-halo-width': 1 },
       },
       {
