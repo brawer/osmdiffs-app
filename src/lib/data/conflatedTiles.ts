@@ -50,6 +50,8 @@ export interface OverviewFacts {
 
 // One conflated.parquet row, put back together from its detail features.
 export interface ConflatedRecord {
+  // The per-run ID its detail features share.
+  fid?: number;
   relation: string;
   spider: string;
   // Tags without their "atp:" or "osm:" prefix.
@@ -219,6 +221,7 @@ function assemble(parts: TileFeature[]): ConflatedRecord {
     atpTags: {},
     osmTags: {},
   };
+  if (typeof first.fid === 'number') record.fid = first.fid;
   for (const part of parts) {
     const props = part.properties;
     switch (props.part) {
