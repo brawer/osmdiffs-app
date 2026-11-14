@@ -3,7 +3,7 @@
 
 // Draws conflated.pmtiles: at z0–12 one dot (or small shape) per row,
 // coloured by its relation and a little larger the more important it is;
-// at z13–16 the AllThePlaces point, the OpenStreetMap shape as an outline,
+// from z13 on, the AllThePlaces point, the OpenStreetMap shape as an outline,
 // and a faint line between the two.
 
 import type {
@@ -131,7 +131,7 @@ function layersFor(
         'circle-stroke-width': big ? 2 : 0.6,
       },
     },
-    // Detail, z13–16: the OpenStreetMap side first, so the AllThePlaces
+    // Detail, from z13 on: the OpenStreetMap side first, so the AllThePlaces
     // point lands on top of it.
     {
       ...base,
