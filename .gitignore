@@ -6,5 +6,5 @@ dist/
 
 # Local copy of the pipeline's published files, used for development
 # against the real range-reading code paths. Fetched manually; never
-# committed (conflated.pmtiles alone is ~1.8 GB).
+# committed (conflated.pmtiles alone is ~4 GB).
 data/

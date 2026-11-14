@@ -28,8 +28,8 @@ jq -r '.resources[].path' data/datapackage.json | while read -r f; do
 done
 ```
 
-The full planet's `conflated.parquet` (~750 MB) and `conflated.pmtiles`
-(~1.8 GB) are large; the app never reads the Parquet, so you can skip it. See
+The full planet's `conflated.parquet` (~400 MB) and `conflated.pmtiles`
+(~4 GB) are large; the app never reads the Parquet, so you can skip it. See
 [`docs/outputs/`](https://github.com/brawer/osmdiffs/tree/main/docs/outputs)
 in the main project for what each file holds.
 
