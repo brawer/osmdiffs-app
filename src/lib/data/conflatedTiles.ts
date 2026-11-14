@@ -166,18 +166,19 @@ export function tileFor(lng: number, lat: number, zoom: number): [number, number
   return [clamp(x), clamp(y)];
 }
 
-// The 3×3 block of detail tiles around a position. A matched shape can be
-// large enough (a retail park, say) for its AllThePlaces point to sit in a
-// neighbouring tile. Wraps around the antimeridian; drops rows past the poles.
-export function detailBlock(lng: number, lat: number): [number, number, number][] {
-  const n = 2 ** DETAIL_ZOOM;
-  const [cx, cy] = tileFor(lng, lat, DETAIL_ZOOM);
+// The 3×3 block of tiles at `zoom` (by default, the first detail zoom)
+// around a position. A matched shape can be large enough (a retail park,
+// say) for its AllThePlaces point to sit in a neighbouring tile. Wraps
+// around the antimeridian; drops rows past the poles.
+export function detailBlock(lng: number, lat: number, zoom: number = DETAIL_ZOOM): [number, number, number][] {
+  const n = 2 ** zoom;
+  const [cx, cy] = tileFor(lng, lat, zoom);
   const tiles: [number, number, number][] = [];
   for (let dy = -1; dy <= 1; dy++) {
     const y = cy + dy;
     if (y < 0 || y >= n) continue;
     for (let dx = -1; dx <= 1; dx++) {
-      tiles.push([DETAIL_ZOOM, (((cx + dx) % n) + n) % n, y]);
+      tiles.push([zoom, (((cx + dx) % n) + n) % n, y]);
     }
   }
   return tiles;
@@ -376,32 +377,39 @@ export class ConflatedTiles {
   // and only if that doesn't hold the whole record, the 3×3 block.
   //
   // Tippecanoe thins out dense detail tiles below the archive's maximum
-  // zoom, so in a city centre a z13 tile can lack an AllThePlaces point
-  // that the deeper tiles still hold, and its nearest point of the same
-  // spider is then another branch (osmdiffs-app#18). With `exact`, the
-  // selection carries the place's exact position, as a shared link does:
-  // a match is then taken only if it is right there, and if the z13 tile
-  // has none, the deepest tile under the position is searched too.
+  // zoom, so in a city centre the z13 tiles can lack a row that the
+  // deepest tiles, a few dozen kilobytes each, still hold. So if the z13
+  // tile under `near` has no row for the selection, the deepest tile under
+  // it is searched too, and likewise its 3×3 block after the z13 block.
+  //
+  // For an AllThePlaces selection, the nearest point of the same spider
+  // among thinned tiles can be another branch (osmdiffs-app#18). With
+  // `exact`, the selection carries the place's exact position, as a shared
+  // link does: a row then only counts if it is right there, and if none
+  // is, nothing is found.
   async lookup(selection: Selection, near: Position, { exact = false } = {}): Promise<ConflatedRecord[]> {
     const [lng, lat] = near as [number, number];
     const strict = exact && selection.kind === 'atp';
     const at = (r: ConflatedRecord) => !strict || isAtSelection(r, selection);
     const found = (records: ConflatedRecord[]) => records.length > 0 && records.every((r) => isComplete(r) && at(r));
-    const [x, y] = tileFor(lng, lat, DETAIL_ZOOM);
-    let features = await this.tile(DETAIL_ZOOM, x, y);
-    let records = findRecords(features, selection);
-    if (found(records)) return records;
-    if (strict && !records.some(at)) {
-      const { maxZoom } = await this.archive.getHeader();
-      if (maxZoom > DETAIL_ZOOM) {
-        const [dx, dy] = tileFor(lng, lat, maxZoom);
-        features = [...features, ...(await this.tile(maxZoom, dx, dy))];
-        records = findRecords(features, selection);
-        if (found(records)) return records;
-      }
+    const { maxZoom } = await this.archive.getHeader();
+    const stages: { tiles: [number, number, number][]; deep: boolean }[] = [
+      { tiles: [[DETAIL_ZOOM, ...tileFor(lng, lat, DETAIL_ZOOM)]], deep: false },
+      { tiles: [[maxZoom, ...tileFor(lng, lat, maxZoom)]], deep: true },
+      { tiles: detailBlock(lng, lat), deep: false },
+      { tiles: detailBlock(lng, lat, maxZoom), deep: true },
+    ];
+    const searched = new Map<string, TileFeature[]>();
+    let records: ConflatedRecord[] = [];
+    for (const stage of stages) {
+      // A deeper tile only helps if thinning may have dropped the row.
+      if (stage.deep && (maxZoom <= DETAIL_ZOOM || records.some(at))) continue;
+      const fresh = stage.tiles.filter((t) => !searched.has(t.join('/')));
+      const loaded = await Promise.all(fresh.map(([z, x, y]) => this.tile(z, x, y)));
+      fresh.forEach((t, i) => searched.set(t.join('/'), loaded[i]!));
+      records = findRecords([...searched.values()].flat(), selection);
+      if (found(records)) return records;
     }
-    const block = await Promise.all(detailBlock(lng, lat).map(([z, x, y]) => this.tile(z, x, y)));
-    records = findRecords([...features, ...block.flat()], selection);
     return records.every(at) ? records : [];
   }
 }
