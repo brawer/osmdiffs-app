@@ -20,8 +20,42 @@ import { cssVar } from '../lib/theme.ts';
 
 const OPENFREEMAP_TILES = 'https://tiles.openfreemap.org/planet';
 const OPENFREEMAP_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
+
+// Labels are set in Karla, the app's own font, for the Latin script, and
+// in OpenFreeMap's Noto Sans for everything else. MapLibre draws a
+// character from the style's `font-faces` file when one covers it, and
+// otherwise falls back to the glyph server's pre-rendered Noto. The name
+// stays "Noto Sans Regular" because that is the font stack the fallback
+// requests from OpenFreeMap. The file is the same self-hosted Karla the
+// page uses (public/fonts/), so the browser loads it once for both.
+// Karla's own italic isn't self-hosted, so water names, which used to be
+// italic, are upright too.
 const FONT = ['Noto Sans Regular'];
-const FONT_ITALIC = ['Noto Sans Italic'];
+const KARLA_URL = '/fonts/karla-latin-variable.woff2';
+// The "latin" subset this file was cut to, from Google Fonts' @font-face
+// rule for it (see theme.css). Characters outside it, such as the "č" in
+// "Česko", come from Noto.
+const KARLA_UNICODE_RANGE = [
+  'U+0000-00FF',
+  'U+0131',
+  'U+0152-0153',
+  'U+02BB-02BC',
+  'U+02C6',
+  'U+02DA',
+  'U+02DC',
+  'U+0304',
+  'U+0308',
+  'U+0329',
+  'U+2000-206F',
+  'U+20AC',
+  'U+2122',
+  'U+2191',
+  'U+2193',
+  'U+2212',
+  'U+2215',
+  'U+FEFF',
+  'U+FFFD',
+];
 
 export interface BasemapColors {
   land: string;
@@ -94,10 +128,15 @@ function roadWidth(stops: [number, number][], extra = 0): ExpressionSpecificatio
   return ['interpolate', ['exponential', 1.5], ['zoom'], ...stops.flatMap(([z, w]) => [z, w + extra])];
 }
 
-export function basemapStyle(c: BasemapColors = FALLBACK): StyleSpecification {
+// `origin` resolves the self-hosted font's URL; MapLibre fetches font
+// files itself and needs an absolute one.
+export function basemapStyle(c: BasemapColors = FALLBACK, origin = 'https://osmdiffs.brawer.ch'): StyleSpecification {
   return {
     version: 8,
     glyphs: OPENFREEMAP_GLYPHS,
+    'font-faces': {
+      [FONT[0]!]: [{ url: new URL(KARLA_URL, origin).href, 'unicode-range': KARLA_UNICODE_RANGE }],
+    },
     sources: {
       openmaptiles: { type: 'vector', url: OPENFREEMAP_TILES },
     },
@@ -203,7 +242,7 @@ export function basemapStyle(c: BasemapColors = FALLBACK): StyleSpecification {
         type: 'symbol',
         source: 'openmaptiles',
         'source-layer': 'water_name',
-        layout: { 'text-field': NAME, 'text-font': FONT_ITALIC, 'text-size': 12 },
+        layout: { 'text-field': NAME, 'text-font': FONT, 'text-size': 12 },
         paint: { 'text-color': c.label, 'text-halo-color': c.labelHalo, 'text-halo-width': 1 },
       },
       {

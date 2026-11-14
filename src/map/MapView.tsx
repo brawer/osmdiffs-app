@@ -48,7 +48,7 @@ export default function MapView({ initialCamera, onCameraChange }: MapViewProps)
     const camera = initialCameraRef.current ?? DEFAULT_CAMERA;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: basemapStyle(currentBasemapColors()),
+      style: basemapStyle(currentBasemapColors(), window.location.origin),
       center: [camera.lng, camera.lat],
       zoom: camera.zoom,
       maxZoom: 19,
@@ -68,7 +68,9 @@ export default function MapView({ initialCamera, onCameraChange }: MapViewProps)
 
     // Repaint the basemap when the system switches between light and dark.
     // setStyle diffs against the current style, so only paint changes.
-    const stopWatchingScheme = onColorSchemeChange(() => map.setStyle(basemapStyle(currentBasemapColors())));
+    const stopWatchingScheme = onColorSchemeChange(() =>
+      map.setStyle(basemapStyle(currentBasemapColors(), window.location.origin)),
+    );
 
     return () => {
       clearTimeout(timer);
