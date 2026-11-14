@@ -1,0 +1,238 @@
+/* SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch> */
+/* SPDX-License-Identifier: MIT */
+
+/* ---- App bar ---- */
+
+.app-bar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 8px 0 16px;
+  /* Same background as brawer.ch's <header> (assets/css/main.css). */
+  background: var(--paper-dim);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 6px var(--shadow);
+}
+
+.app-bar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Same emoji/link-to-home idea as brawer.ch's .site-logo. */
+.app-bar__logo {
+  font-size: 1.5rem;
+  line-height: 1;
+  display: inline-flex;
+  text-decoration: none;
+  transition: transform 0.15s ease;
+}
+
+.app-bar__logo:hover {
+  transform: scale(1.08);
+}
+
+.app-bar__logo:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-bar__logo {
+    transition: none;
+  }
+
+  .app-bar__logo:hover {
+    transform: none;
+  }
+}
+
+.app-bar__title {
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.app-bar__title-osm {
+  font-weight: 800;
+}
+
+.app-bar__title-diffs {
+  font-weight: 300;
+}
+
+/* Same shape/colors as brawer.ch's .drawer-trigger. */
+.app-bar__menu-button {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  line-height: 1;
+  background: var(--paper-raised);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-bar__menu-button {
+    transition: none;
+  }
+}
+
+.app-bar__menu-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.app-bar__menu-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* ---- Drawer ---- */
+
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.drawer-backdrop--open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drawer {
+  position: absolute;
+  /* Right edge, next to the app bar's hamburger button -- slides in from
+     where the user tapped, which reads better on a phone than sliding in
+     from the opposite (left) edge. */
+  inset: 0 0 0 auto;
+  z-index: 30;
+  width: min(85vw, 360px);
+  overflow-y: auto;
+  /* Tonal elevation, same idea as the homepage's drawer: a surface tinted
+     toward the theme's own accent, rather than just lightened. */
+  background: color-mix(in srgb, var(--paper-raised) 88%, var(--accent) 12%);
+  padding: 20px;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+}
+
+.drawer--open {
+  transform: translateX(0);
+  /* Only while open: on the closed drawer, just off screen to the right,
+     the shadow would still show as a dark strip along the map's edge. */
+  box-shadow: -2px 0 16px var(--shadow);
+}
+
+.drawer__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1.4rem;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.drawer__section {
+  margin: 0 0 24px 0;
+}
+
+.drawer__section h3 {
+  margin: 0 0 8px 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+.drawer__section p {
+  margin: 0 0 8px 0;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.drawer__section a {
+  display: block;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.92rem;
+  margin-bottom: 4px;
+}
+
+.drawer__section a:hover {
+  text-decoration: underline;
+}
+
+/* The author line's link sits inline within a sentence (name, then a
+   middle dot, then the plain-text email) rather than as its own block row. */
+.drawer__section p a {
+  display: inline;
+  margin-bottom: 0;
+}
+
+/* Icon + label links (GitHub repo, CC0 badge): icon and text on one line. */
+.drawer__section a.drawer__icon-link {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer__icon-link img {
+  display: block;
+}
+
+.drawer__section--license a {
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+/* ---- Update banner ---- */
+
+.update-banner {
+  position: absolute;
+  top: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: var(--accent);
+  color: var(--paper-raised);
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 8px var(--shadow);
+  cursor: pointer;
+}
+
+/* ---- Map ---- */
+
+.map {
+  position: absolute;
+  inset: 0;
+  background: var(--map-land);
+}

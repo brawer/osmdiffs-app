@@ -1,0 +1,142 @@
+/* SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch> */
+/* SPDX-License-Identifier: MIT */
+
+/* Structured the same way as brawer.ch's "Paper & Plum" tokens
+   (brawer/homepage's assets/css/main.css): light values on :root, redefined
+   under prefers-color-scheme for dark. No manual light/dark toggle -- this
+   app follows the OS/browser setting only. */
+
+:root {
+  color-scheme: light dark;
+
+  --paper: #fafaf7;
+  --paper-dim: #fbf5eb;
+  --paper-raised: #ffffff;
+  --ink: #242019;
+  --ink-soft: #5c5648;
+  --ink-faint: #6a6454;
+  --accent: #8c3f5c;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --border: rgba(36, 32, 25, 0.12);
+  --shadow: rgba(36, 32, 25, 0.18);
+
+  /* What each conflated.parquet row's match.relation looks like on the
+     map. Taken from osmviews-app's ramp, so the two apps share one palette:
+     blue for places OpenStreetMap already has (the quiet, "fine" state),
+     this theme's own plum --accent for places missing from OpenStreetMap
+     (what a mapper looks for first), amber for stores inside a host, brick
+     for places that may be gone. Neutral for relations added in future
+     pipeline versions that this app doesn't know yet. */
+  --rel-same: #3d6f96;
+  --rel-missing: #8c3f5c;
+  --rel-located-in: #e2823f;
+  --rel-deletion: #c1523a;
+  --rel-other: #6a6454;
+
+  /* The basemap is only background, painted in faint paper tones so that
+     the data on top of it is the one saturated thing on screen. */
+  --map-land: #f4f2ec;
+  --map-water: #dfe3e3;
+  --map-park: #ecede3;
+  --map-road: #ffffff;
+  --map-road-casing: #e4e0d6;
+  --map-building: #e9e5dc;
+  --map-boundary: #c9c3b4;
+  --map-label: #6a6454;
+  --map-label-halo: #f4f2ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1a1613;
+    --paper-dim: #2e271f;
+    --paper-raised: #362d23;
+    --ink: #f2e9d8;
+    --ink-soft: #c9bca5;
+    --ink-faint: #a0947d;
+    --accent: #e2a0bc;
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+    --border: rgba(242, 233, 216, 0.12);
+    --shadow: rgba(0, 0, 0, 0.4);
+
+    --rel-same: #6aa0c9;
+    --rel-missing: #e2a0bc;
+    --rel-located-in: #e2823f;
+    --rel-deletion: #d5636b;
+    --rel-other: #a0947d;
+
+    --map-land: #221d18;
+    --map-water: #1a2226;
+    --map-park: #242219;
+    --map-road: #3a3229;
+    --map-road-casing: #2a241e;
+    --map-building: #2c261f;
+    --map-boundary: #4a4136;
+    --map-label: #a0947d;
+    --map-label-halo: #221d18;
+  }
+}
+
+/* Self-hosted, same font and license as brawer.ch (see public/fonts/
+   karla-OFL.txt, SIL Open Font License) -- but not byte-identical to
+   brawer/homepage's copy: that one's variable axis only spans wght
+   400-800 (all homepage itself needs), which has no Light weight for
+   the app bar's "Diffs" (OSM extrabold, Diffs light, as in osmviews-app). Fetched instead straight from Google Fonts'
+   own latin-subset build with the full wght 200-800 range
+   (fonts.googleapis.com/css2?family=Karla:wght@200..800, the "latin"
+   -- not "latin-ext" -- @font-face block's src, matching brawer.ch's
+   own subset choice) so one file covers both that and everything
+   brawer.ch uses. font-display: swap avoids invisible text while the
+   font loads (an explicit <link rel=preload> in index.html starts
+   that fetch as early as possible). */
+@font-face {
+  font-family: 'Karla';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/karla-latin-variable.woff2') format('woff2');
+}
+
+/* Metric-adjusted fallback for the swap window, identical tuning to
+   brawer.ch's (assets/css/main.css): sits between "Karla" and the plain
+   OS-native stack below, so the initial paint in a system sans doesn't
+   reflow much once Karla finishes loading. These values were derived
+   there empirically (rendered text measured in both fonts via Canvas2D,
+   not taken from either font's OS/2 table -- see that repo's comment for
+   the full rationale) and verified against Karla's own rendered box;
+   reused as-is since it's the same font file. Targets local Arial/
+   Helvetica specifically, falling through to the real stack if neither
+   resolves locally.  */
+@font-face {
+  font-family: 'Karla Fallback';
+  src:
+    local('Arial'),
+    local('Helvetica');
+  size-adjust: 100.42%;
+  ascent-override: 81.65%;
+  descent-override: 24.5%;
+  line-gap-override: 0%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family:
+    'Karla',
+    'Karla Fallback',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
