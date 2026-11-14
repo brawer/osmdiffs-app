@@ -248,6 +248,10 @@ describe('ConflatedTiles.lookup', () => {
     spider: 'joe_and_the_juice',
     'atp:addr:full': name,
   });
+  // A matched row that the z13 tile lost too.
+  const MIGROS_ATP: [number, number] = [8.5359, 47.3728];
+  const MIGROS_OSM: [number, number] = [8.536, 47.3729];
+  const shop = { fid: 3, relation: 'same', spider: 'migros_ch' };
   const [x13, y13] = tileFor(...LINKED, 13);
   const [x16, y16] = tileFor(...LINKED, 16);
   const archive = {
@@ -257,7 +261,18 @@ describe('ConflatedTiles.lookup', () => {
         return { data: encode({ unmatched: [{ point: OTHER, properties: branch(2, 'Badenerstrasse 9') }] }, [13, x, y]) };
       }
       if (z === 16 && x === x16 && y === y16) {
-        return { data: encode({ unmatched: [{ point: LINKED, properties: branch(1, 'Sihlstrasse 37') }] }, [16, x, y]) };
+        return {
+          data: encode(
+            {
+              unmatched: [{ point: LINKED, properties: branch(1, 'Sihlstrasse 37') }],
+              matched: [
+                { point: MIGROS_ATP, properties: { ...shop, part: 'atp', 'atp:name': 'Migros' } },
+                { point: MIGROS_OSM, properties: { ...shop, part: 'osm', 'osm:type': 'node', 'osm:id': 480274029, 'osm:name': 'Migros' } },
+              ],
+            },
+            [16, x, y],
+          ),
+        };
       }
       return undefined;
     },
@@ -274,6 +289,11 @@ describe('ConflatedTiles.lookup', () => {
   it('finds nothing rather than another branch', async () => {
     const elsewhere = { ...selection, lat: selection.lat - 0.002 };
     expect(await tiles.lookup(elsewhere, [elsewhere.lng, elsewhere.lat], { exact: true })).toEqual([]);
+  });
+
+  it('finds an OpenStreetMap object that only a deeper tile holds', async () => {
+    const records = await tiles.lookup({ kind: 'osm', type: 'node', id: 480274029 }, LINKED);
+    expect(records.map((r) => r.osmTags.name)).toEqual(['Migros']);
   });
 
   it('takes the nearest branch after a click on a coarse tile', async () => {
