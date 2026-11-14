@@ -1,0 +1,28 @@
+<!--
+SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch>
+SPDX-License-Identifier: MIT
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="OSMDiffs: where AllThePlaces and OpenStreetMap agree, and where OpenStreetMap may be missing or out of date."
+    />
+    <title>OSMDiffs</title>
+    <!-- Starts the font fetch in parallel with main.css, instead of only
+         after the browser has downloaded+parsed the CSS and reached the
+         @font-face rule inside it. `crossorigin` is required even though
+         the font is same-origin -- fonts always fetch in anonymous-CORS
+         mode, and a preload issued without this attribute is a *different*
+         cache entry the browser then silently fetches a second time. -->
+    <link rel="preload" href="/fonts/karla-latin-variable.woff2" as="font" type="font/woff2" crossorigin />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
