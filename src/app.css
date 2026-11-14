@@ -237,20 +237,16 @@
   overflow: hidden;
 }
 
-/* The map runs under the app bar, as in osmviews-app.
-   From 900 px up, an open side panel takes the left 400 px and the map
-   shrinks beside it; below that, the panel is a sheet over the map. */
+/* The map runs under the app bar, as in osmviews-app, and under the side
+   panel, which is always there: from 900 px up a column on the left,
+   below that a sheet at the bottom. The map treats the panel as padding
+   (see App.tsx), so it never changes size, and so never jumps. */
 .app__map {
   position: absolute;
   inset: 0;
 }
 
-@media (min-width: 900px) {
-  .app--panel-open .app__map {
-    left: var(--panel-width);
-  }
-}
-
+/* Keep in sync with PANEL_WIDTH_PX in App.tsx. */
 :root {
   --panel-width: 400px;
 }
@@ -306,6 +302,7 @@
 }
 
 .side-panel__close:focus-visible,
+.side-panel__collapse:focus-visible,
 .side-panel__handle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -321,8 +318,18 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
+  /* Keep in sync with PEEK_PX in SidePanel.tsx. */
   .side-panel--peek {
-    height: 140px;
+    height: 176px;
+  }
+
+  /* At rest there is nothing to resize, so no handle. */
+  .side-panel--resting .side-panel__body {
+    padding-top: 12px;
+  }
+
+  .side-panel__collapse {
+    display: none;
   }
 
   .side-panel--half {
@@ -357,10 +364,6 @@
     background: var(--border);
   }
 
-  /* The sheet covers the legend's spot. */
-  .app--panel-open .legend-card {
-    display: none;
-  }
 }
 
 @media (max-width: 899px) and (prefers-reduced-motion: reduce) {
@@ -377,6 +380,39 @@
     border-right: 1px solid var(--border);
     /* Height set while dragging the (hidden) handle doesn't apply here. */
     height: auto !important;
+    transition: transform 0.2s ease;
+  }
+
+  /* Tucked away to the left; only the tab on its edge stays in view.
+     The map underneath doesn't move. */
+  .side-panel--collapsed {
+    transform: translateX(-100%);
+    border-right-color: transparent;
+  }
+
+  /* A tab on the panel's outer edge, just under the app bar. */
+  .side-panel__collapse {
+    position: absolute;
+    top: 12px;
+    right: -25px;
+    width: 24px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 8px 8px 0;
+    background: var(--paper-raised);
+    color: var(--ink-soft);
+    box-shadow: 2px 1px 6px var(--shadow);
+    cursor: pointer;
+  }
+
+  .side-panel__collapse:hover {
+    color: var(--ink);
+    background: var(--paper-dim);
   }
 
   .side-panel__handle {
@@ -385,6 +421,12 @@
 
   .side-panel__body {
     padding-top: 16px;
+  }
+}
+
+@media (min-width: 900px) and (prefers-reduced-motion: reduce) {
+  .side-panel {
+    transition: none;
   }
 }
 
@@ -503,26 +545,10 @@
   font-weight: 700;
 }
 
-/* ---- Legend card (same shape as osmviews-app's RampCard) ---- */
+/* ---- Legend: the side panel's resting content ---- */
 
 .legend-card {
-  position: absolute;
-  inset: auto 8px 0 8px;
-  z-index: 10;
-  margin: 0 auto max(8px, env(safe-area-inset-bottom)) auto;
-  max-width: 480px;
-  background: var(--paper-dim);
-  border-radius: 14px;
-  box-shadow: 0 -2px 16px var(--shadow);
-  padding: 10px 8px 8px;
-}
-
-@media (min-width: 540px) {
-  .legend-card {
-    inset: auto 16px 16px auto;
-    left: auto;
-    width: 280px;
-  }
+  margin: 0 -8px;
 }
 
 .legend-card__title {
@@ -586,6 +612,12 @@ button.legend-card__row:hover {
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
   font-size: 0.82rem;
+}
+
+.legend-card__hint {
+  margin: 16px 8px 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
 }
 
 /* ---- Drawer navigation ---- */

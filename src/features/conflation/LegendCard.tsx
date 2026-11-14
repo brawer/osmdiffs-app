@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch>
 // SPDX-License-Identifier: MIT
 
-// The floating legend: what each colour means and how many such places
-// are in view. Each row also switches its places on or off, so that, say,
-// missing places stand out once the matched ones are hidden.
+// The side panel's resting content, while nothing is selected: what each
+// colour means and how many such places are in view. Each row also
+// switches its places on or off, so that, say, missing places stand out
+// once the matched ones are hidden.
 
 import { KNOWN_RELATIONS, type KnownRelation } from '../../lib/data/conflatedTiles.ts';
 import { RELATION_LABELS, RELATION_TOKENS } from './relations.ts';
 
 interface LegendCardProps {
-  counts: Record<string, number>;
+  // Undefined until the map has data.
+  counts: Record<string, number> | undefined;
   hidden: ReadonlySet<KnownRelation>;
   onToggle: (relation: KnownRelation) => void;
 }
@@ -17,11 +19,11 @@ interface LegendCardProps {
 const numberFormat = new Intl.NumberFormat();
 
 export default function LegendCard({ counts, hidden, onToggle }: LegendCardProps) {
-  const other = Object.entries(counts)
+  const other = Object.entries(counts ?? {})
     .filter(([r]) => !(KNOWN_RELATIONS as readonly string[]).includes(r))
     .reduce((sum, [, n]) => sum + n, 0);
   return (
-    <section className="legend-card" aria-label="Legend">
+    <section className="legend-card">
       <h2 className="legend-card__title">AllThePlaces places, in view</h2>
       <ul className="legend-card__rows">
         {KNOWN_RELATIONS.map((relation) => {
@@ -40,7 +42,9 @@ export default function LegendCard({ counts, hidden, onToggle }: LegendCardProps
                   aria-hidden="true"
                 />
                 <span className="legend-card__label">{RELATION_LABELS[relation]}</span>
-                <span className="legend-card__count">{shown ? numberFormat.format(counts[relation] ?? 0) : 'hidden'}</span>
+                <span className="legend-card__count">
+                  {!shown ? 'hidden' : counts ? numberFormat.format(counts[relation] ?? 0) : '…'}
+                </span>
               </button>
             </li>
           );
@@ -55,6 +59,7 @@ export default function LegendCard({ counts, hidden, onToggle }: LegendCardProps
           </li>
         )}
       </ul>
+      <p className="legend-card__hint">Select a place on the map to compare it with OpenStreetMap.</p>
     </section>
   );
 }

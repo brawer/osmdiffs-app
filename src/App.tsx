@@ -6,7 +6,7 @@ import type { Position } from 'geojson';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AppBar from './components/AppBar.tsx';
 import Drawer from './components/Drawer.tsx';
-import SidePanel from './components/SidePanel.tsx';
+import SidePanel, { APP_BAR_PX, PEEK_PX } from './components/SidePanel.tsx';
 import { conflationOverlay, SOURCE_ID } from './features/conflation/conflationOverlay.ts';
 import FeatureDetail from './features/conflation/FeatureDetail.tsx';
 import LegendCard from './features/conflation/LegendCard.tsx';
@@ -26,7 +26,13 @@ import {
 import { getResource, watchDatapackage, type DataPackage } from './lib/data/datapackage.ts';
 import { selectionToString, type Camera, type Route, type Selection } from './lib/route.ts';
 import { getRoute, navigate, useRoute } from './lib/useRoute.ts';
+import { useWideScreen } from './lib/useWideScreen.ts';
 import MapView from './map/MapView.tsx';
+import { setPaddingInPlace, type Padding } from './map/padding.ts';
+
+// The side panel's width on wide screens; keep in sync with --panel-width
+// in app.css.
+const PANEL_WIDTH_PX = 400;
 
 // Whether reloading the page would lose nothing the URL doesn't keep: no
 // open view and no selection, so a reload just redraws the same map with
@@ -85,6 +91,10 @@ export default function App() {
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const [hidden, setHidden] = useState<ReadonlySet<KnownRelation>>(new Set());
   const [clicked, setClicked] = useState<Clicked | null>(null);
+  const wide = useWideScreen();
+  const [collapsedWide, setCollapsed] = useState(false);
+  // Only a column can be tucked away; a bottom sheet always peeks.
+  const collapsed = wide && collapsedWide;
 
   useEffect(
     () =>
@@ -128,7 +138,39 @@ export default function App() {
   const stats = useSpiderStats(datapackage, view.kind !== 'map');
   const conflatedUrl = datapackage ? getResource(datapackage, 'conflated')?.url : undefined;
 
-  const panelOpen = selection !== undefined || view.kind !== 'map';
+  // At rest, the panel shows the legend; otherwise a place or a view.
+  const resting = selection === undefined && view.kind === 'map';
+  const shownKey = selection
+    ? `place:${selectionKey}`
+    : view.kind === 'spider'
+      ? `spider:${view.spider}`
+      : view.kind === 'wikidata'
+        ? `wikidata:${view.qid}`
+        : view.kind;
+
+  // Showing something new brings back a tucked-away panel.
+  const [lastShown, setLastShown] = useState(shownKey);
+  if (lastShown !== shownKey) {
+    setLastShown(shownKey);
+    if (shownKey !== 'map') setCollapsed(false);
+  }
+
+  // The map lies under the panel, and treats it as padding. A new map
+  // takes it as is, so the camera from the URL is the centre of what is
+  // visible; later changes leave the map where it is on screen.
+  const padLeft = wide && !collapsed ? PANEL_WIDTH_PX : 0;
+  const padBottom = wide ? 0 : PEEK_PX;
+  const paddedMap = useRef<maplibregl.Map | null>(null);
+  useEffect(() => {
+    if (!map) return;
+    const padding: Padding = { top: 0, right: 0, bottom: padBottom, left: padLeft };
+    if (paddedMap.current === map) {
+      setPaddingInPlace(map, padding);
+    } else {
+      paddedMap.current = map;
+      map.setPadding(padding);
+    }
+  }, [map, padLeft, padBottom]);
 
   // On a spider page, show the spider's features: fit the map to where
   // the overview tiles have them.
@@ -144,7 +186,9 @@ export default function App() {
       (extent) => {
         if (!live || !extent) return;
         const [w, s, e, n] = extent;
-        const wide = window.innerWidth >= 900;
+        // Beyond the map's own padding: on a phone, the sheet is open at
+        // half height on a spider page.
+        const sheet = wide ? 0 : map.getContainer().clientHeight * 0.5 - PEEK_PX;
         map.fitBounds(
           [
             [w, s],
@@ -152,7 +196,7 @@ export default function App() {
           ],
           {
             maxZoom: 14,
-            padding: { top: 52 + 40, bottom: wide ? 40 : map.getContainer().clientHeight * 0.5 + 20, left: 40, right: 40 },
+            padding: { top: APP_BAR_PX + 40, bottom: Math.max(40, sheet + 20), left: 40, right: 40 },
           },
         );
       },
@@ -164,24 +208,27 @@ export default function App() {
       // fit again next time.
       if (fittedSpider.current === spider) fittedSpider.current = undefined;
     };
-  }, [map, tiles, spider]);
+  }, [map, tiles, spider, wide]);
 
-  // Keep the selected place in sight: opening the panel narrows the map
-  // (or, on a phone, covers its lower half), which can push the place out
-  // of view; so can following a shared link.
+  // Keep the selected place in sight. Following a shared link can put it
+  // anywhere; on a phone, the opening sheet covers the lower half of the
+  // map; and a panel shown again covers the left side. Otherwise the map
+  // stays where it is.
   useEffect(() => {
     if (!map || selLng === undefined || selLat === undefined) return;
-    // After the map has resized for the panel.
+    // After the sheet has opened, and the padding has caught up.
     const timer = setTimeout(() => {
       const { clientWidth: w, clientHeight: h } = map.getContainer();
-      const sheet = window.innerWidth < 900 ? h * 0.5 : 0;
+      const { left = 0, right = 0, bottom = 0 } = map.getPadding();
+      // How much of the map the sheet covers, beyond the padding.
+      const sheet = wide ? 0 : resting ? PEEK_PX : h * 0.5;
       const at = map.project([selLng, selLat]);
-      if (at.x < 40 || at.x > w - 40 || at.y < 52 + 40 || at.y > h - sheet - 40) {
-        map.easeTo({ center: [selLng, selLat], offset: [0, (52 - sheet) / 2] });
+      if (at.x < left + 40 || at.x > w - right - 40 || at.y < APP_BAR_PX + 40 || at.y > h - Math.max(sheet, bottom) - 40) {
+        map.easeTo({ center: [selLng, selLat], offset: [0, (APP_BAR_PX - Math.max(0, sheet - bottom)) / 2] });
       }
-    }, 100);
+    }, 250);
     return () => clearTimeout(timer);
-  }, [map, selLng, selLat, panelOpen]);
+  }, [map, selLng, selLat, resting, wide, collapsed]);
 
   const overlay = useMemo(
     () =>
@@ -250,7 +297,7 @@ export default function App() {
   }, [drawerOpen]);
 
   return (
-    <div className={`app ${panelOpen ? 'app--panel-open' : ''}`}>
+    <div className={`app ${collapsed ? 'app--panel-collapsed' : ''}`}>
       <div className="app__map">
         <MapView
           initialCamera={route.camera}
@@ -259,20 +306,22 @@ export default function App() {
           onClick={onMapClick}
           onMapReady={setMap}
         />
-        {tiles && <LegendCard counts={counts} hidden={hidden} onToggle={toggleRelation} />}
       </div>
 
-      {selection ? (
-        <SidePanel label="Place details" onClose={() => select(undefined)}>
+      <SidePanel
+        label={selection ? 'Place details' : view.kind === 'map' ? 'Legend' : 'Spider statistics'}
+        onClose={selection ? () => select(undefined) : view.kind === 'map' ? undefined : closeView}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((c) => !c)}
+      >
+        {selection ? (
           <FeatureDetail selection={selection} facts={click?.facts} detail={detail} />
-        </SidePanel>
-      ) : (
-        view.kind !== 'map' && (
-          <SidePanel label="Spider statistics" onClose={closeView}>
-            <SpiderViews view={view} state={stats} conflatedUrl={conflatedUrl} />
-          </SidePanel>
-        )
-      )}
+        ) : view.kind === 'map' ? (
+          <LegendCard counts={tiles ? counts : undefined} hidden={hidden} onToggle={toggleRelation} />
+        ) : (
+          <SpiderViews view={view} state={stats} conflatedUrl={conflatedUrl} />
+        )}
+      </SidePanel>
 
       <AppBar onMenuClick={() => setDrawerOpen(true)} />
       <Drawer
