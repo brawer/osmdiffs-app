@@ -5,11 +5,13 @@ import Point from '@mapbox/point-geometry';
 import { fromVectorTileJs, type VectorTileFeatureLike } from '@maplibre/vt-pbf';
 import { describe, expect, it } from 'vitest';
 import {
+  ConflatedTiles,
   DETAIL_ZOOM,
   decodeTile,
   detailBlock,
   distanceMeters,
   findRecords,
+  isAtSelection,
   overviewFacts,
   selectionFor,
   spiderExtent,
@@ -22,13 +24,15 @@ const Z = DETAIL_ZOOM;
 // Zürich main station's z13 tile.
 const [X, Y] = tileFor(8.54, 47.378, Z);
 
-// Where a position falls in the test tile, in tile coordinates.
-function toTile(lng: number, lat: number): Point {
-  const n = 2 ** Z;
+type TileId = [number, number, number];
+
+// Where a position falls in a test tile, in tile coordinates.
+function toTile(lng: number, lat: number, [z, tx, ty]: TileId = [Z, X, Y]): Point {
+  const n = 2 ** z;
   const x = ((lng + 180) / 360) * n;
   const rad = (lat * Math.PI) / 180;
   const y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
-  return new Point(Math.round((x - X) * EXTENT), Math.round((y - Y) * EXTENT));
+  return new Point(Math.round((x - tx) * EXTENT), Math.round((y - ty) * EXTENT));
 }
 
 type Fixture = { properties: Properties } & (
@@ -37,22 +41,23 @@ type Fixture = { properties: Properties } & (
   | { polygon: [number, number][] }
 );
 
-function feature(f: Fixture): VectorTileFeatureLike {
+function feature(f: Fixture, at?: TileId): VectorTileFeatureLike {
+  const t = (p: [number, number]) => toTile(p[0], p[1], at);
   const [type, rings] =
     'point' in f
-      ? [1 as const, [[toTile(...f.point)]]]
+      ? [1 as const, [[t(f.point)]]]
       : 'line' in f
-        ? [2 as const, [f.line.map((p) => toTile(...p))]]
-        : [3 as const, [f.polygon.map((p) => toTile(...p))]];
+        ? [2 as const, [f.line.map(t)]]
+        : [3 as const, [f.polygon.map(t)]];
   return { type, properties: f.properties, id: undefined, extent: EXTENT, loadGeometry: () => rings };
 }
 
-function encode(layers: Record<string, Fixture[]>): Uint8Array {
+function encode(layers: Record<string, Fixture[]>, at?: TileId): Uint8Array {
   return fromVectorTileJs({
     layers: Object.fromEntries(
       Object.entries(layers).map(([name, features]) => [
         name,
-        { version: 2, name, extent: EXTENT, length: features.length, feature: (i: number) => feature(features[i]!) },
+        { version: 2, name, extent: EXTENT, length: features.length, feature: (i: number) => feature(features[i]!, at) },
       ]),
     ),
   });
@@ -148,6 +153,15 @@ describe('decodeTile and findRecords', () => {
     expect(records.map((r) => r.atpTags.name)).toEqual(['Near']);
   });
 
+  it('tells the place at a selection from a farther branch', () => {
+    const [near] = findRecords(features, { kind: 'atp', spider: 'coop_pronto_ch', lng: 8.5392, lat: 47.3762 });
+    const at = { kind: 'atp', spider: 'coop_pronto_ch', lng: near!.atpPosition![0]!, lat: near!.atpPosition![1]! } as const;
+    expect(isAtSelection(near!, at)).toBe(true);
+    // About 75 m north: still the nearest, but not the place the link meant.
+    expect(isAtSelection(near!, { ...at, lat: at.lat + 0.00067 })).toBe(false);
+    expect(isAtSelection(near!, { kind: 'osm', type: 'node', id: 1 })).toBe(true);
+  });
+
   it('keeps a located_in host apart from the place itself', () => {
     const [record] = findRecords(features, { kind: 'atp', spider: 'sushi_daily', lng: 8.5412, lat: 47.3768 });
     expect(record).toMatchObject({
@@ -219,5 +233,51 @@ describe('spiderExtent', () => {
   it('includes shapes, and gives null for an unknown spider', () => {
     expect(spiderExtent(features, 'sushi_daily')![2]).toBeCloseTo(8.5415, 3);
     expect(spiderExtent(features, 'nobody')).toBeNull();
+  });
+});
+
+describe('ConflatedTiles.lookup', () => {
+  // Two branches of one chain, as at osmdiffs-app#18: the z13 tile was
+  // thinned out and lost the linked one, which only the z16 tile holds.
+  const LINKED: [number, number] = [8.5358526, 47.3727251];
+  const OTHER: [number, number] = [8.5308945, 47.3733827];
+  const branch = (fid: number, name: string) => ({
+    fid,
+    part: 'atp',
+    relation: 'missing_in_osm',
+    spider: 'joe_and_the_juice',
+    'atp:addr:full': name,
+  });
+  const [x13, y13] = tileFor(...LINKED, 13);
+  const [x16, y16] = tileFor(...LINKED, 16);
+  const archive = {
+    getHeader: async () => ({ maxZoom: 16 }),
+    getZxy: async (z: number, x: number, y: number) => {
+      if (z === 13 && x === x13 && y === y13) {
+        return { data: encode({ unmatched: [{ point: OTHER, properties: branch(2, 'Badenerstrasse 9') }] }, [13, x, y]) };
+      }
+      if (z === 16 && x === x16 && y === y16) {
+        return { data: encode({ unmatched: [{ point: LINKED, properties: branch(1, 'Sihlstrasse 37') }] }, [16, x, y]) };
+      }
+      return undefined;
+    },
+  };
+  const tiles = new ConflatedTiles('https://example.org/conflated.pmtiles');
+  Object.assign(tiles, { archive });
+  const selection = { kind: 'atp', spider: 'joe_and_the_juice', lng: LINKED[0], lat: LINKED[1] } as const;
+
+  it('finds a linked place that only a deeper tile holds', async () => {
+    const records = await tiles.lookup(selection, LINKED, { exact: true });
+    expect(records.map((r) => r.atpTags['addr:full'])).toEqual(['Sihlstrasse 37']);
+  });
+
+  it('finds nothing rather than another branch', async () => {
+    const elsewhere = { ...selection, lat: selection.lat - 0.002 };
+    expect(await tiles.lookup(elsewhere, [elsewhere.lng, elsewhere.lat], { exact: true })).toEqual([]);
+  });
+
+  it('takes the nearest branch after a click on a coarse tile', async () => {
+    const records = await tiles.lookup(selection, LINKED);
+    expect(records.map((r) => r.atpTags['addr:full'])).toEqual(['Badenerstrasse 9']);
   });
 });

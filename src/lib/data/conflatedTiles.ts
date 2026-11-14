@@ -280,6 +280,23 @@ export function isComplete(record: ConflatedRecord): boolean {
   return record.atpPosition !== undefined && (!needsOsm || record.osm !== undefined);
 }
 
+// How close, in meters, a record's AllThePlaces point must be to an
+// AllThePlaces selection's position to count as that very place. A shared
+// link carries the exact position, so only tile-coordinate rounding (about
+// a meter at z13) separates them; another branch of the same chain is
+// usually much farther away.
+export const SAME_PLACE_METERS = 10;
+
+// Whether a record is the place an AllThePlaces selection points at, and
+// not merely the nearest branch of the same chain among the features
+// searched. An OpenStreetMap selection names its object by ID, so its
+// records always are.
+export function isAtSelection(record: ConflatedRecord, selection: Selection): boolean {
+  if (selection.kind !== 'atp') return true;
+  if (!record.atpPosition) return false;
+  return distanceMeters([selection.lng, selection.lat], record.atpPosition) <= SAME_PLACE_METERS;
+}
+
 // Finds the records for a selection among the features of the detail
 // tiles around it. An OpenStreetMap selection yields every row matched to
 // that object (usually one); an AllThePlaces selection yields the row of
@@ -357,12 +374,34 @@ export class ConflatedTiles {
   // Looks a selection up in the detail tiles around `near`: first the one
   // tile under it, which in a dense city can be a few hundred kilobytes,
   // and only if that doesn't hold the whole record, the 3×3 block.
-  async lookup(selection: Selection, near: Position): Promise<ConflatedRecord[]> {
+  //
+  // Tippecanoe thins out dense detail tiles below the archive's maximum
+  // zoom, so in a city centre a z13 tile can lack an AllThePlaces point
+  // that the deeper tiles still hold, and its nearest point of the same
+  // spider is then another branch (osmdiffs-app#18). With `exact`, the
+  // selection carries the place's exact position, as a shared link does:
+  // a match is then taken only if it is right there, and if the z13 tile
+  // has none, the deepest tile under the position is searched too.
+  async lookup(selection: Selection, near: Position, { exact = false } = {}): Promise<ConflatedRecord[]> {
     const [lng, lat] = near as [number, number];
+    const strict = exact && selection.kind === 'atp';
+    const at = (r: ConflatedRecord) => !strict || isAtSelection(r, selection);
+    const found = (records: ConflatedRecord[]) => records.length > 0 && records.every((r) => isComplete(r) && at(r));
     const [x, y] = tileFor(lng, lat, DETAIL_ZOOM);
-    const records = findRecords(await this.tile(DETAIL_ZOOM, x, y), selection);
-    if (records.length > 0 && records.every(isComplete)) return records;
-    const tiles = await Promise.all(detailBlock(lng, lat).map(([z, x, y]) => this.tile(z, x, y)));
-    return findRecords(tiles.flat(), selection);
+    let features = await this.tile(DETAIL_ZOOM, x, y);
+    let records = findRecords(features, selection);
+    if (found(records)) return records;
+    if (strict && !records.some(at)) {
+      const { maxZoom } = await this.archive.getHeader();
+      if (maxZoom > DETAIL_ZOOM) {
+        const [dx, dy] = tileFor(lng, lat, maxZoom);
+        features = [...features, ...(await this.tile(maxZoom, dx, dy))];
+        records = findRecords(features, selection);
+        if (found(records)) return records;
+      }
+    }
+    const block = await Promise.all(detailBlock(lng, lat).map(([z, x, y]) => this.tile(z, x, y)));
+    records = findRecords([...features, ...block.flat()], selection);
+    return records.every(at) ? records : [];
   }
 }
