@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/brawer/osmdiffs-app/compare/v1.0.0...v1.1.0) (2026-11-14)
+
+
+### 🆕 Features
+
+* show the conflation map, with details for a clicked place ([36f89a6](https://github.com/brawer/osmdiffs-app/commit/36f89a63ef5d56bbf7f4ce4fd43a77e22114d12c)), closes [#1](https://github.com/brawer/osmdiffs-app/issues/1)
+
 ## 1.0.0 (2026-11-14)
 
 
