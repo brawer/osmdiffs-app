@@ -2,15 +2,24 @@
 // SPDX-License-Identifier: MIT
 
 import { githubIconDataUri } from '../lib/icons.ts';
+import type { View } from '../lib/route.ts';
+import Link from './Link.tsx';
+import { toView } from './linkTo.ts';
 
 interface DrawerProps {
   open: boolean;
   onClose: () => void;
   // The data build's version (its release date), once known.
   buildVersion: string | undefined;
+  view: View;
 }
 
-export default function Drawer({ open, onClose, buildVersion }: DrawerProps) {
+const NAV: { label: string; view: View; active: (v: View) => boolean }[] = [
+  { label: 'Map', view: { kind: 'map' }, active: (v) => v.kind === 'map' },
+  { label: 'Spiders', view: { kind: 'spiders' }, active: (v) => v.kind !== 'map' },
+];
+
+export default function Drawer({ open, onClose, buildVersion, view }: DrawerProps) {
   return (
     <>
       <div
@@ -22,6 +31,20 @@ export default function Drawer({ open, onClose, buildVersion }: DrawerProps) {
         <button type="button" className="drawer__close" onClick={onClose} aria-label="Close menu">
           ×
         </button>
+
+        <ul className="drawer__nav">
+          {NAV.map((item) => (
+            <li key={item.label}>
+              <Link
+                to={toView(item.view)}
+                onNavigate={onClose}
+                className={`drawer__nav-link ${item.active(view) ? 'drawer__nav-link--active' : ''}`}
+              >
+                {item.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
 
         <section className="drawer__section">
           <h3>About</h3>

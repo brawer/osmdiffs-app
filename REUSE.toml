@@ -64,3 +64,12 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2019 The Karla Project Authors (https://github.com/googlefonts/karla)"
 SPDX-License-Identifier = "OFL-1.1"
+
+# A small spider-stats.parquet, written by `osmdiffs conflate` from the
+# test data in brawer/osmdiffs. Its counts, names and Wikidata IDs come
+# from OpenStreetMap and AllThePlaces extracts of a few Swiss places.
+[[annotations]]
+path = "src/lib/data/testdata/spider-stats.parquet"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "OpenStreetMap contributors"
+SPDX-License-Identifier = "ODbL-1.0"

@@ -1,0 +1,205 @@
+// SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch>
+// SPDX-License-Identifier: MIT
+
+// Reads spider-stats.parquet, as described in
+// https://github.com/brawer/osmdiffs/blob/main/docs/outputs/SPIDER_STATS.md,
+// into typed rows. Like conflated.pmtiles it is a debugging aid whose
+// shape may change, so nothing outside this module knows its columns.
+//
+// The whole file is read once per session: the spider list needs every
+// row anyway, and on the planet the file is small. Reading single row
+// groups with range requests can come later without touching callers.
+
+import { decompress as zstd } from 'fzstd';
+import { asyncBufferFromUrl, parquetMetadataAsync, parquetReadObjects, type FileMetaData } from 'hyparquet';
+
+export interface RuleCount {
+  rule: string;
+  rows: number;
+}
+
+export interface TagCount {
+  tag: string;
+  atp: number;
+  agreeing: number;
+  differing: number;
+  missingInOsm: number;
+}
+
+export interface BrandCount {
+  country: string | null;
+  wikidataId: string | null;
+  name: string | null;
+  atpFeatures: number;
+  same: number;
+  locatedIn: number;
+  missingInOsm: number;
+  osmFeatures: number | null;
+  deletionCandidates: number | null;
+  offsetEastM: number | null;
+  offsetNorthM: number | null;
+}
+
+export interface SpiderStats {
+  spider: string;
+  atpFeatures: number | null;
+  atpErrors: number | null;
+  dumpFeatures: number | null;
+  notForOsm: number | null;
+  invalid: number | null;
+  noMatcher: number | null;
+  inChina: number | null;
+  datum: string | null;
+  datasetAttributes: Record<string, string> | null;
+  rows: number;
+  same: number;
+  locatedIn: number;
+  missingInOsm: number;
+  sharedOsmFeatures: number;
+  sharedPositions: number;
+  offsetEastM: number | null;
+  offsetNorthM: number | null;
+  // Histogram over distanceBinsM: one more bin than bounds.
+  distanceM: number[];
+  missingNoCandidate: number;
+  missingRejected: number;
+  missingTaken: number;
+  rejectedDistanceM: number[];
+  chanceSampled: number;
+  chanceMatched: number;
+  openingHoursTopShare: number | null;
+  rules: RuleCount[];
+  tags: TagCount[];
+  brands: BrandCount[];
+}
+
+export interface SpiderStatsFile {
+  spiders: SpiderStats[];
+  // Upper bounds of the distance histogram bins, in meters: the first bin
+  // counts distances below the first bound, the last one those at or
+  // above the last bound.
+  distanceBinsM: number[];
+}
+
+// What the pipeline wrote when this was built; used if the file doesn't
+// say, which it always should.
+const DEFAULT_DISTANCE_BINS_M = [1, 10, 25, 50, 100, 250, 1000];
+
+const COMPRESSORS = { ZSTD: (input: Uint8Array) => zstd(input) };
+
+type Raw = Record<string, unknown>;
+
+// Parquet UINT64 comes back as a BigInt; the counts here all fit a double.
+function num(value: unknown): number | null {
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'number') return value;
+  return null;
+}
+
+function count(value: unknown): number {
+  return num(value) ?? 0;
+}
+
+function str(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function list(value: unknown): Raw[] {
+  return Array.isArray(value) ? (value.filter((v) => v && typeof v === 'object') as Raw[]) : [];
+}
+
+// A MAP<UTF8, UTF8>, which hyparquet may give as an object or as a list
+// of key/value entries.
+function stringMap(value: unknown): Record<string, string> | null {
+  if (value === null || value === undefined) return null;
+  const out: Record<string, string> = {};
+  if (Array.isArray(value)) {
+    for (const entry of value as Raw[]) {
+      if (typeof entry?.key === 'string') out[entry.key] = String(entry.value ?? '');
+    }
+  } else if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Raw)) out[k] = String(v ?? '');
+  }
+  return out;
+}
+
+export function toSpiderStats(r: Raw): SpiderStats {
+  return {
+    spider: String(r.spider),
+    atpFeatures: num(r.atp_features),
+    atpErrors: num(r.atp_errors),
+    dumpFeatures: num(r.dump_features),
+    notForOsm: num(r.not_for_osm),
+    invalid: num(r.invalid),
+    noMatcher: num(r.no_matcher),
+    inChina: num(r.in_china),
+    datum: str(r.datum),
+    datasetAttributes: stringMap(r.dataset_attributes),
+    rows: count(r.rows),
+    same: count(r.same),
+    locatedIn: count(r.located_in),
+    missingInOsm: count(r.missing_in_osm),
+    sharedOsmFeatures: count(r.shared_osm_features),
+    sharedPositions: count(r.shared_positions),
+    offsetEastM: num(r.offset_east_m),
+    offsetNorthM: num(r.offset_north_m),
+    distanceM: Array.isArray(r.distance_m) ? r.distance_m.map(count) : [],
+    missingNoCandidate: count(r.missing_no_candidate),
+    missingRejected: count(r.missing_rejected),
+    missingTaken: count(r.missing_taken),
+    rejectedDistanceM: Array.isArray(r.rejected_distance_m) ? r.rejected_distance_m.map(count) : [],
+    chanceSampled: count(r.chance_sampled),
+    chanceMatched: count(r.chance_matched),
+    openingHoursTopShare: num(r.opening_hours_top_share),
+    rules: list(r.rules).map((x) => ({ rule: String(x.rule), rows: count(x.rows) })),
+    tags: list(r.tags).map((x) => ({
+      tag: String(x.tag),
+      atp: count(x.atp),
+      agreeing: count(x.agreeing),
+      differing: count(x.differing),
+      missingInOsm: count(x.missing_in_osm),
+    })),
+    brands: list(r.brands).map((x) => ({
+      country: str(x.country),
+      wikidataId: str(x.wikidata_id),
+      name: str(x.name),
+      atpFeatures: count(x.atp_features),
+      same: count(x.same),
+      locatedIn: count(x.located_in),
+      missingInOsm: count(x.missing_in_osm),
+      osmFeatures: num(x.osm_features),
+      deletionCandidates: num(x.deletion_candidates),
+      offsetEastM: num(x.offset_east_m),
+      offsetNorthM: num(x.offset_north_m),
+    })),
+  };
+}
+
+export function distanceBins(metadata: FileMetaData): number[] {
+  const entry = metadata.key_value_metadata?.find((kv) => kv.key === 'osmdiffs:distance_bins_m');
+  if (!entry?.value) return DEFAULT_DISTANCE_BINS_M;
+  try {
+    const parsed: unknown = JSON.parse(entry.value);
+    if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'number')) return parsed;
+  } catch {
+    // Fall through: a comma-separated list, say.
+  }
+  const values = entry.value.split(/[\s,[\]]+/).filter(Boolean).map(Number);
+  return values.length > 0 && values.every(Number.isFinite) ? values : DEFAULT_DISTANCE_BINS_M;
+}
+
+export async function readSpiderStats(file: ArrayBuffer | Awaited<ReturnType<typeof asyncBufferFromUrl>>) {
+  const metadata = await parquetMetadataAsync(file);
+  const raw = await parquetReadObjects({ file, metadata, compressors: COMPRESSORS });
+  const result: SpiderStatsFile = {
+    spiders: raw.map((r) => toSpiderStats(r)),
+    distanceBinsM: distanceBins(metadata),
+  };
+  return result;
+}
+
+export async function fetchSpiderStats(url: string): Promise<SpiderStatsFile> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GET ${url}: ${res.status}`);
+  return readSpiderStats(await res.arrayBuffer());
+}

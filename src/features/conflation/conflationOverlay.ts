@@ -34,6 +34,8 @@ export interface ConflationOptions {
   selection: Selection | undefined;
   // Where the selected place is, as [lng, lat], once known.
   selectedPosition: [number, number] | undefined;
+  // Draws only this spider's features, for its spider page.
+  spider?: string | undefined;
 }
 
 function relationColor(colors: MapColors): ExpressionSpecification {
@@ -50,8 +52,9 @@ const isLine: ExpressionSpecification = ['match', ['geometry-type'], ['LineStrin
 const isPolygon: ExpressionSpecification = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false];
 const isOsmShape: ExpressionSpecification = ['match', ['get', 'part'], ['osm', 'host'], true, false];
 
-function visible(hidden: ReadonlySet<KnownRelation>): ExpressionSpecification {
-  return ['!', ['in', ['get', 'relation'], ['literal', [...hidden]]]];
+function visible(hidden: ReadonlySet<KnownRelation>, spider: string | undefined): ExpressionSpecification {
+  const relation: ExpressionSpecification = ['!', ['in', ['get', 'relation'], ['literal', [...hidden]]]];
+  return spider === undefined ? relation : ['all', relation, ['==', ['get', 'spider'], spider]];
 }
 
 // Dots grow with zoom, and the most important rows a little more.
@@ -69,7 +72,7 @@ const OVERVIEW_RADIUS: ExpressionSpecification = [
 
 function layersFor(sourceLayer: string, options: ConflationOptions, colors: MapColors): LayerSpecification[] {
   const color = relationColor(colors);
-  const show = visible(options.hidden);
+  const show = visible(options.hidden, options.spider);
   const base = { source: SOURCE_ID, 'source-layer': sourceLayer } as const;
   const all = (...conditions: ExpressionSpecification[]): FilterSpecification =>
     ['all', show, ...conditions] as FilterSpecification;

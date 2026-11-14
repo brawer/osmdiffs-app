@@ -3,7 +3,7 @@
 
 import type * as maplibregl from 'maplibre-gl';
 import type { Position } from 'geojson';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AppBar from './components/AppBar.tsx';
 import Drawer from './components/Drawer.tsx';
 import SidePanel from './components/SidePanel.tsx';
@@ -12,6 +12,8 @@ import FeatureDetail from './features/conflation/FeatureDetail.tsx';
 import LegendCard from './features/conflation/LegendCard.tsx';
 import { openConflatedTiles, useConflatedDetail } from './features/conflation/useConflatedDetail.ts';
 import { useInViewCounts } from './features/conflation/useInViewCounts.ts';
+import SpiderViews from './features/spiders/SpiderViews.tsx';
+import { useSpiderStats } from './features/spiders/useSpiderStats.ts';
 import {
   DETAIL_ZOOM,
   MATCHED_LAYER,
@@ -38,6 +40,12 @@ function select(selection: Selection | undefined, { replace = false } = {}) {
   navigate(selection ? { ...rest, selection } : rest, { replace });
 }
 
+// Back to the plain map, where the camera is now.
+function closeView() {
+  const { camera } = getRoute();
+  navigate(camera ? { view: { kind: 'map' }, camera } : { view: { kind: 'map' } });
+}
+
 // Where a clicked feature is. Below z13 a dot's geometry is snapped to a
 // coarse tile grid, so the click itself is closer. At z13 and up, a click
 // on an OpenStreetMap shape or a link counts as a click on its row, whose
@@ -58,6 +66,10 @@ function clickedPosition(
   }
   return feature.geometry.type === 'Point' ? feature.geometry.coordinates : lngLat.toArray();
 }
+
+// Where the page was opened: a shared link to a spider page with a camera
+// keeps that camera instead of moving to the spider's features.
+const initialRoute = getRoute();
 
 interface Clicked {
   key: string;
@@ -111,7 +123,48 @@ export default function App() {
     (selection?.kind === 'atp' ? [selection.lng, selection.lat] : undefined);
   const [selLng, selLat] = selectedPosition ?? [];
 
-  const panelOpen = selection !== undefined;
+  const view = route.view;
+  const spider = view.kind === 'spider' ? view.spider : undefined;
+  const stats = useSpiderStats(datapackage, view.kind !== 'map');
+  const conflatedUrl = datapackage ? getResource(datapackage, 'conflated')?.url : undefined;
+
+  const panelOpen = selection !== undefined || view.kind !== 'map';
+
+  // On a spider page, show the spider's features: fit the map to where
+  // the overview tiles have them.
+  const fittedSpider = useRef(
+    initialRoute.view.kind === 'spider' && initialRoute.camera ? initialRoute.view.spider : undefined,
+  );
+  useEffect(() => {
+    if (!spider) fittedSpider.current = undefined;
+    if (!map || !tiles || !spider || fittedSpider.current === spider) return;
+    fittedSpider.current = spider;
+    let live = true;
+    tiles.spiderExtent(spider).then(
+      (extent) => {
+        if (!live || !extent) return;
+        const [w, s, e, n] = extent;
+        const wide = window.innerWidth >= 900;
+        map.fitBounds(
+          [
+            [w, s],
+            [e, n],
+          ],
+          {
+            maxZoom: 14,
+            padding: { top: 52 + 40, bottom: wide ? 40 : map.getContainer().clientHeight * 0.5 + 20, left: 40, right: 40 },
+          },
+        );
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+      // Under StrictMode's double run, or a quick move to another spider,
+      // fit again next time.
+      if (fittedSpider.current === spider) fittedSpider.current = undefined;
+    };
+  }, [map, tiles, spider]);
 
   // Keep the selected place in sight: opening the panel narrows the map
   // (or, on a phone, covers its lower half), which can push the place out
@@ -138,11 +191,12 @@ export default function App() {
             hidden,
             selection: getRoute().selection,
             selectedPosition: selLng !== undefined && selLat !== undefined ? [selLng, selLat] : undefined,
+            spider,
           })
         : null,
     // The selection is compared by value, through its key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tiles, hidden, selectionKey, selLng, selLat],
+    [tiles, hidden, selectionKey, selLng, selLat, spider],
   );
 
   const onCameraChange = useCallback((camera: Camera) => {
@@ -189,6 +243,7 @@ export default function App() {
       if (e.key !== 'Escape') return;
       if (drawerOpen) setDrawerOpen(false);
       else if (getRoute().selection) select(undefined);
+      else if (getRoute().view.kind !== 'map') closeView();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -207,14 +262,25 @@ export default function App() {
         {tiles && <LegendCard counts={counts} hidden={hidden} onToggle={toggleRelation} />}
       </div>
 
-      {selection && (
+      {selection ? (
         <SidePanel label="Place details" onClose={() => select(undefined)}>
           <FeatureDetail selection={selection} facts={click?.facts} detail={detail} />
         </SidePanel>
+      ) : (
+        view.kind !== 'map' && (
+          <SidePanel label="Spider statistics" onClose={closeView}>
+            <SpiderViews view={view} state={stats} conflatedUrl={conflatedUrl} />
+          </SidePanel>
+        )
       )}
 
       <AppBar onMenuClick={() => setDrawerOpen(true)} />
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} buildVersion={datapackage?.version} />
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        buildVersion={datapackage?.version}
+        view={view}
+      />
 
       {newVersion && (
         <button type="button" className="update-banner" onClick={() => window.location.reload()}>
