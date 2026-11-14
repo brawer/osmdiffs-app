@@ -101,7 +101,7 @@ export interface BasemapColors {
 }
 
 // Light-theme fallbacks, for when theme.css hasn't been applied (tests).
-const FALLBACK: BasemapColors = {
+export const BASEMAP_FALLBACK: BasemapColors = {
   land: '#f4f2ec',
   water: '#dfe3e3',
   park: '#ecede3',
@@ -116,15 +116,15 @@ const FALLBACK: BasemapColors = {
 export function currentBasemapColors(): BasemapColors {
   const get = (name: `--${string}`, fallback: string) => cssVar(name) || fallback;
   return {
-    land: get('--map-land', FALLBACK.land),
-    water: get('--map-water', FALLBACK.water),
-    park: get('--map-park', FALLBACK.park),
-    road: get('--map-road', FALLBACK.road),
-    roadCasing: get('--map-road-casing', FALLBACK.roadCasing),
-    building: get('--map-building', FALLBACK.building),
-    boundary: get('--map-boundary', FALLBACK.boundary),
-    label: get('--map-label', FALLBACK.label),
-    labelHalo: get('--map-label-halo', FALLBACK.labelHalo),
+    land: get('--map-land', BASEMAP_FALLBACK.land),
+    water: get('--map-water', BASEMAP_FALLBACK.water),
+    park: get('--map-park', BASEMAP_FALLBACK.park),
+    road: get('--map-road', BASEMAP_FALLBACK.road),
+    roadCasing: get('--map-road-casing', BASEMAP_FALLBACK.roadCasing),
+    building: get('--map-building', BASEMAP_FALLBACK.building),
+    boundary: get('--map-boundary', BASEMAP_FALLBACK.boundary),
+    label: get('--map-label', BASEMAP_FALLBACK.label),
+    labelHalo: get('--map-label-halo', BASEMAP_FALLBACK.labelHalo),
   };
 }
 
@@ -161,7 +161,7 @@ function roadWidth(stops: [number, number][], extra = 0): ExpressionSpecificatio
 
 // `origin` resolves the self-hosted fonts' URLs; MapLibre fetches font
 // files itself and needs absolute ones.
-export function basemapStyle(c: BasemapColors = FALLBACK, origin = 'https://osmdiffs.brawer.ch'): StyleSpecification {
+export function basemapStyle(c: BasemapColors = BASEMAP_FALLBACK, origin = 'https://osmdiffs.brawer.ch'): StyleSpecification {
   return {
     version: 8,
     glyphs: OPENFREEMAP_GLYPHS,
