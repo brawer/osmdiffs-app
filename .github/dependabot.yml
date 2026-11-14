@@ -10,6 +10,16 @@ updates:
     groups:
       npm-dependencies:
         patterns: ["*"]
+    ignore:
+      # TypeScript 7 is the native (Go) compiler, and typescript-eslint
+      # 8.x only accepts typescript <6.1, so a TS 7 bump breaks `npm ci`
+      # until typescript-eslint supports it. Lift this when it does.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # @types/node tracks the Node.js version CI and deploys run on
+      # (.node-version); bump that and these types together, by hand.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
