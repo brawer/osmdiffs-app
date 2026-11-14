@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/brawer/osmdiffs-app/compare/v1.1.0...v1.2.0) (2026-11-14)
+
+
+### 🆕 Features
+
+* spider dashboard ([6d85a78](https://github.com/brawer/osmdiffs-app/commit/6d85a78ef0f1e3d5742f4ad8703adf40d8018cd9)), closes [#2](https://github.com/brawer/osmdiffs-app/issues/2)
+
 ## [1.1.0](https://github.com/brawer/osmdiffs-app/compare/v1.0.0...v1.1.0) (2026-11-14)
 
 
