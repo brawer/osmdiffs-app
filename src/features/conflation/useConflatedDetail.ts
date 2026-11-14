@@ -15,6 +15,7 @@ import {
   MATCHED_LAYER,
   SOURCE_LAYERS,
   findRecords,
+  isAtSelection,
   isComplete,
   type ConflatedRecord,
   type Properties,
@@ -132,14 +133,21 @@ export function useConflatedDetail(
       if (!stale) setResult({ tiles, key, state });
     };
     (async () => {
+      // Without a click, as after opening a shared link, an AllThePlaces
+      // selection carries the place's exact position. The map only holds
+      // the tiles loaded so far, and their nearest point of that spider
+      // can be another branch of the same chain (osmdiffs-app#18), so a
+      // match is then only taken if it is right at that position.
+      const exact = !hint && selection.kind === 'atp';
       let records = map ? findRecords(featuresOnMap(map, selection), selection) : [];
+      if (exact) records = records.filter((r) => isAtSelection(r, selection));
       if (records.length === 0 || !records.every(isComplete)) {
         let near: Position | undefined = hint;
         if (!near && selection.kind === 'atp') near = [selection.lng, selection.lat];
         if (!near && map) near = await findOnMap(map, selection as Selection & { kind: 'osm' });
         if (!near && map) near = map.getCenter().toArray();
         if (near) {
-          const found = await tiles.lookup(selection, near);
+          const found = await tiles.lookup(selection, near, { exact });
           if (found.length > 0) records = found;
         }
       }
