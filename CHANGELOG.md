@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/brawer/osmdiffs-app/compare/v1.2.0...v1.3.0) (2026-11-15)
+
+
+### 🆕 Features
+
+* fade the rest of the map while a place is selected ([a07e050](https://github.com/brawer/osmdiffs-app/commit/a07e050bb54a221ffb0d5bc859009410ce9b2a81))
+* keep the side panel always open, with the legend at rest ([d74a60f](https://github.com/brawer/osmdiffs-app/commit/d74a60fe590e5998aed1a543ac76fdca6b410666))
+
+
+### 🐞 Fixes
+
+* find OpenStreetMap selections that thinned z13 tiles lost ([03d9f18](https://github.com/brawer/osmdiffs-app/commit/03d9f1801fd5a898360508ce3311f474ec9f39c8))
+* open a shared link at the linked branch, not another one of the chain ([1ced741](https://github.com/brawer/osmdiffs-app/commit/1ced74112272d70ce5095242f5988f2f094ab4a7)), closes [#18](https://github.com/brawer/osmdiffs-app/issues/18)
+
 ## [1.2.0](https://github.com/brawer/osmdiffs-app/compare/v1.1.0...v1.2.0) (2026-11-14)
 
 
