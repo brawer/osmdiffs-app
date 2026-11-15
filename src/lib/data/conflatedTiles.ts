@@ -10,11 +10,12 @@
 // In short: two layers, `matched` and `unmatched`. At z0–12 ("overview")
 // each row is one feature with only `spider`, `relation`, `importance`
 // and, where there is an OpenStreetMap side, `osm:type`/`osm:id`. At
-// z13 and deeper ("detail", up to the archive's max zoom, currently z14
-// since brawer/osmdiffs#956, which is read from its header) a row splits into up to three features that share a
-// per-run `fid`: the AllThePlaces point (`part: "atp"`), the OSM shape
-// (`part: "osm"`, or `"host"` for located_in rows) and a connector line
-// (`part: "link"`), carrying the full `atp:*` and `osm:*` tags.
+// z13 and deeper ("detail") a row splits into up to three features that
+// share a per-run `fid`: the AllThePlaces point (`part: "atp"`), the OSM
+// shape (`part: "osm"`, or `"host"` for located_in rows) and a connector
+// line (`part: "link"`), carrying the full `atp:*` and `osm:*` tags. The
+// detail goes up to the archive's max zoom, which is read from its header:
+// z14 from brawer/osmdiffs#956 on, z16 before.
 
 import { VectorTile } from '@mapbox/vector-tile';
 import type { Geometry, Position } from 'geojson';
