@@ -73,14 +73,3 @@ path = "src/lib/data/testdata/spider-stats.parquet"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "OpenStreetMap contributors"
 SPDX-License-Identifier = "ODbL-1.0"
-
-# A small conflated.pmtiles in the format that brawer/osmdiffs#970 makes,
-# with the `hex` and `spider_hex` layers of brawer/osmdiffs#957: cut from
-# a run over Switzerland (Zug and Zurich, and the Engadin for a sparse
-# area; detail tiles for Zug only). Built from OpenStreetMap and
-# AllThePlaces data.
-[[annotations]]
-path = "src/lib/data/testdata/conflated-hex-sample.pmtiles"
-precedence = "aggregate"
-SPDX-FileCopyrightText = "OpenStreetMap contributors"
-SPDX-License-Identifier = "ODbL-1.0"
