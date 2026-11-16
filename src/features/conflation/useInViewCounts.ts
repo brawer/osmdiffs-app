@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 // How many places of each relation the map currently draws, for the
-// legend. Counts what is rendered, not what exists: at low zoom the tiles
-// hold only the most important rows, so the legend says "in view".
+// legend: the dots in view, plus at z0–12 what the hexagons in view count
+// for the rows that aren't dots yet. A hexagon counts fully once any part
+// of it is in view, hence "in view" rather than an exact total.
 
 import type * as maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
-import { DETAIL_ZOOM, SOURCE_LAYERS } from '../../lib/data/conflatedTiles.ts';
+import { DETAIL_ZOOM, hexCounts, SOURCE_LAYERS, type Properties } from '../../lib/data/conflatedTiles.ts';
+import { HEX_LAYER_IDS } from './conflationOverlay.ts';
 
 const OVERVIEW_LAYERS = SOURCE_LAYERS.flatMap((l) => [`${l}-overview-dot`, `${l}-overview-fill`, `${l}-overview-line`]);
 const DETAIL_LAYERS = SOURCE_LAYERS.map((l) => `${l}-atp`);
@@ -24,16 +26,32 @@ function rowKey(feature: maplibregl.MapGeoJSONFeature): string {
 }
 
 export function countRendered(map: maplibregl.Map): Record<string, number> {
-  const ids = (map.getZoom() < DETAIL_ZOOM ? OVERVIEW_LAYERS : DETAIL_LAYERS).filter((id) => map.getLayer(id));
-  if (ids.length === 0) return {};
+  const overview = map.getZoom() < DETAIL_ZOOM;
+  const ids = (overview ? OVERVIEW_LAYERS : DETAIL_LAYERS).filter((id) => map.getLayer(id));
+  const hexIds = overview ? HEX_LAYER_IDS.filter((id) => id.endsWith('-fill') && map.getLayer(id)) : [];
+  if (ids.length === 0 && hexIds.length === 0) return {};
   const seen = new Set<string>();
   const counts: Record<string, number> = {};
-  for (const feature of map.queryRenderedFeatures({ layers: ids })) {
-    const key = rowKey(feature);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const relation = String(feature.properties.relation);
-    counts[relation] = (counts[relation] ?? 0) + 1;
+  const add = (relation: string, n: number) => {
+    if (n > 0) counts[relation] = (counts[relation] ?? 0) + n;
+  };
+  if (ids.length > 0) {
+    for (const feature of map.queryRenderedFeatures({ layers: ids })) {
+      const key = rowKey(feature);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      add(String(feature.properties.relation), 1);
+    }
+  }
+  if (hexIds.length > 0) {
+    // A cell near a tile edge is in every tile that buffers it.
+    for (const feature of map.queryRenderedFeatures({ layers: hexIds })) {
+      const hex = hexCounts(feature.properties as Properties);
+      const key = `hex|${hex.spider ?? ''}|${hex.h3}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const [relation, n] of Object.entries(hex.counts)) add(relation, n);
+    }
   }
   return counts;
 }

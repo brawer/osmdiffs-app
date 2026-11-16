@@ -16,6 +16,13 @@
 // line (`part: "link"`), carrying the full `atp:*` and `osm:*` tags. The
 // detail goes up to the archive's max zoom, which is read from its header:
 // z14 from brawer/osmdiffs#956 on, z16 before.
+//
+// From brawer/osmdiffs#970 on, the overview holds only the rows it
+// shows: each has a point zoom `pz` and is in the tiles from that zoom
+// on. The rest are counted in H3 hexagons, one polygon per zoom and cell,
+// in the tiles of that zoom only: layer `hex` for the whole map and
+// `spider_hex` per spider. Both are internal to this app. The overview
+// also gained a `deletion_candidate` layer, which the app doesn't draw.
 
 import { VectorTile } from '@mapbox/vector-tile';
 import type { Geometry, Position } from 'geojson';
@@ -26,6 +33,16 @@ import type { OsmType, Selection } from '../route.ts';
 export const MATCHED_LAYER = 'matched';
 export const UNMATCHED_LAYER = 'unmatched';
 export const SOURCE_LAYERS = [MATCHED_LAYER, UNMATCHED_LAYER] as const;
+
+// H3 hexagons counting the overview rows not yet shown at their zoom.
+export const HEX_LAYER = 'hex';
+// The same, per spider, with a `spider` property, for spider pages.
+export const SPIDER_HEX_LAYER = 'spider_hex';
+export const HEX_LAYERS = [HEX_LAYER, SPIDER_HEX_LAYER] as const;
+
+export function isHexLayer(layer: string | undefined): boolean {
+  return layer === HEX_LAYER || layer === SPIDER_HEX_LAYER;
+}
 
 // The first zoom with full tags; below it, the overview.
 export const DETAIL_ZOOM = 13;
@@ -104,6 +121,43 @@ export function overviewFacts(props: Properties): OverviewFacts {
 export function selectionFor(facts: OverviewFacts, position: Position): Selection {
   if (facts.relation === 'same' && facts.osm) return { kind: 'osm', ...facts.osm };
   return { kind: 'atp', spider: facts.spider, lng: position[0]!, lat: position[1]! };
+}
+
+// What a hexagon counts, per relation. Its `n` also counts deletion
+// candidates (only in `hex`), which the app doesn't draw, so they are
+// left out; whatever else `n` holds beyond the known relations is
+// `other`.
+export interface HexCounts {
+  h3: string;
+  // Set in `spider_hex`.
+  spider?: string;
+  counts: Record<KnownRelation | 'other', number>;
+}
+
+export function hexCounts(props: Properties): HexCounts {
+  const num = (key: string) => {
+    const v = props[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  };
+  const same = num('same');
+  const missing = num('missing_in_osm');
+  const locatedIn = num('located_in');
+  const other = Math.max(0, num('n') - num('deletion_candidate') - same - missing - locatedIn);
+  const hex: HexCounts = {
+    h3: String(props.h3 ?? ''),
+    counts: { same, missing_in_osm: missing, located_in: locatedIn, other },
+  };
+  if (typeof props.spider === 'string') hex.spider = props.spider;
+  return hex;
+}
+
+// How many of a hexagon's places the map shows, given the relations the
+// legend has switched off.
+export function shownCount(hex: HexCounts, hidden: ReadonlySet<KnownRelation>): number {
+  return Object.entries(hex.counts).reduce(
+    (sum, [relation, n]) => sum + (hidden.has(relation as KnownRelation) ? 0 : n),
+    0,
+  );
 }
 
 // A decoded detail-tile feature.

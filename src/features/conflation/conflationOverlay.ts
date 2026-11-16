@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch>
 // SPDX-License-Identifier: MIT
 
-// Draws conflated.pmtiles: at z0–12 one dot (or small shape) per row,
-// coloured by its relation and a little larger the more important it is;
-// from z13 on, the AllThePlaces point, the OpenStreetMap shape as an outline,
+// Draws conflated.pmtiles: at z0–12 one dot (or small shape) per row
+// that the tiles show at that zoom, coloured by its relation and a little
+// larger the more important it is, over H3 hexagons that count the rows
+// not shown yet; from z13 on, the AllThePlaces point, the OpenStreetMap shape as an outline,
 // and a faint line between the two. The detail tiles stop at z14 (z16
 // before brawer/osmdiffs#956), and MapLibre overzooms them beyond that.
 
@@ -15,9 +16,11 @@ import type {
 } from 'maplibre-gl';
 import {
   DETAIL_ZOOM,
+  HEX_LAYER,
   KNOWN_RELATIONS,
   MATCHED_LAYER,
   SOURCE_LAYERS,
+  SPIDER_HEX_LAYER,
   type KnownRelation,
 } from '../../lib/data/conflatedTiles.ts';
 import type { Selection } from '../../lib/route.ts';
@@ -105,6 +108,126 @@ function overviewRadiusStops(extra: number): (number | ExpressionSpecification)[
 
 function overviewRadius(extra: number): ExpressionSpecification {
   return ['interpolate', ['linear'], ['zoom'], ...overviewRadiusStops(extra)] as ExpressionSpecification;
+}
+
+// Hexagons, z0–12. Each is in the tiles of its own zoom only, so the map
+// never shows two generations at once; at a new zoom a cell splits into
+// its children, and those holding few enough rows turn into dots.
+
+// A hexagon's count of one relation, or 0 if the legend hides it.
+function hexCount(relation: KnownRelation, hidden: ReadonlySet<KnownRelation>): ExpressionSpecification {
+  return hidden.has(relation) ? ['literal', 0] : ['to-number', ['get', relation], 0];
+}
+
+// Rows of relations the app doesn't know: `n` less the known ones and the
+// deletion candidates, which only `hex` counts and the app doesn't draw.
+const HEX_OTHER: ExpressionSpecification = [
+  'max',
+  0,
+  [
+    '-',
+    ['to-number', ['get', 'n'], 0],
+    [
+      '+',
+      ['to-number', ['get', 'deletion_candidate'], 0],
+      ...KNOWN_RELATIONS.map((r): ExpressionSpecification => ['to-number', ['get', r], 0]),
+    ],
+  ],
+];
+
+// How many of a hexagon's rows the map shows.
+export function hexShown(hidden: ReadonlySet<KnownRelation>): ExpressionSpecification {
+  return ['+', ...KNOWN_RELATIONS.map((r) => hexCount(r, hidden)), HEX_OTHER];
+}
+
+// The relation colours mixed by how many of each the hexagon holds, so a
+// cell of mostly missing places reads like their dots, and one where most
+// are in OpenStreetMap like theirs. Colouring by the count alone would
+// mostly show where people live. Mixed in HCL, which keeps the in-between
+// cells as saturated as the dots, rather than a muddy grey.
+function hexColor(relation: MapColors['relation'], hidden: ReadonlySet<KnownRelation>): ExpressionSpecification {
+  const same = hexCount('same', hidden);
+  const missing = hexCount('missing_in_osm', hidden);
+  const locatedIn = hexCount('located_in', hidden);
+  const share = (part: ExpressionSpecification, whole: ExpressionSpecification): ExpressionSpecification => [
+    '/',
+    part,
+    ['max', 1, whole],
+  ];
+  const matchedOrMissing: ExpressionSpecification = [
+    'interpolate-hcl',
+    ['linear'],
+    share(missing, ['+', same, missing]),
+    0,
+    relation.same,
+    1,
+    relation.missing_in_osm,
+  ];
+  return [
+    'interpolate-hcl',
+    ['linear'],
+    share(locatedIn, ['+', same, missing, locatedIn]),
+    0,
+    matchedOrMissing,
+    1,
+    relation.located_in,
+  ];
+}
+
+// Fuller the more rows a cell holds: from a lone place to a thousand.
+function hexOpacity(shown: ExpressionSpecification, scale: number): ExpressionSpecification {
+  return ['interpolate', ['linear'], ['ln', ['max', 1, shown]], 0, 0.25 * scale, Math.log(1000), 0.7 * scale];
+}
+
+// Where the map switches to the next zoom's tiles, the hexagons that turn
+// into dots vanish and the rest split. To soften that jump, hexagons fade
+// a little around each whole zoom: HEX_DIP of their opacity there, all of
+// it HEX_DIP_WIDTH of a zoom level away.
+export const HEX_DIP = 0.8;
+export const HEX_DIP_WIDTH = 0.25;
+
+function hexFade(full: ExpressionSpecification): ExpressionSpecification {
+  const dipped: ExpressionSpecification = ['*', HEX_DIP, full];
+  const stops: (number | ExpressionSpecification)[] = [0, full];
+  for (let z = 1; z <= DETAIL_ZOOM; z++) {
+    stops.push(z - HEX_DIP_WIDTH, full, z, dipped);
+    if (z < DETAIL_ZOOM) stops.push(z + HEX_DIP_WIDTH, full);
+  }
+  return ['interpolate', ['linear'], ['zoom'], ...stops] as ExpressionSpecification;
+}
+
+export const HEX_LAYER_IDS = ['hex-fill', 'hex-line'];
+
+function hexLayers(options: ConflationOptions, colors: MapColors, dimmed: boolean): LayerSpecification[] {
+  const spider = options.spider;
+  const shown = hexShown(options.hidden);
+  const filter = (
+    spider === undefined ? ['>', shown, 0] : ['all', ['==', ['get', 'spider'], spider], ['>', shown, 0]]
+  ) as FilterSpecification;
+  const base = {
+    source: SOURCE_ID,
+    'source-layer': spider === undefined ? HEX_LAYER : SPIDER_HEX_LAYER,
+    maxzoom: DETAIL_ZOOM,
+    filter,
+  } as const;
+  return [
+    {
+      ...base,
+      id: 'hex-fill',
+      type: 'fill',
+      paint: {
+        'fill-color': hexColor(dimmed ? colors.dimmed.relation : colors.relation, options.hidden),
+        'fill-opacity': hexFade(hexOpacity(shown, dimmed ? 0.6 : 1)),
+      },
+    },
+    // A thin seam in the land's colour keeps neighbouring cells apart.
+    {
+      ...base,
+      id: 'hex-line',
+      type: 'line',
+      paint: { 'line-color': colors.halo, 'line-width': 0.6, 'line-opacity': 0.8 },
+    },
+  ];
 }
 
 // How a set of layers is drawn. `normal` when nothing is selected;
@@ -272,8 +395,10 @@ export function conflationOverlay(options: ConflationOptions): Overlay {
   const only = selectedFilter(options);
   return {
     sources,
-    interactiveLayerIds: INTERACTIVE_LAYER_IDS,
+    interactiveLayerIds: [...INTERACTIVE_LAYER_IDS, ...HEX_LAYER_IDS],
     layers: (colors) => [
+      // Hexagons at the bottom, so the dots that leave them stay on top.
+      ...hexLayers(options, colors, mode === 'dimmed'),
       // Matched rows at the bottom and unmatched ones on top, since places
       // missing from OpenStreetMap are what a mapper looks for.
       ...layersFor(MATCHED_LAYER, options, colors, mode),

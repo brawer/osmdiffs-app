@@ -9,6 +9,8 @@ import Drawer from './components/Drawer.tsx';
 import SidePanel, { APP_BAR_PX, PEEK_PX } from './components/SidePanel.tsx';
 import { conflationOverlay, SOURCE_ID } from './features/conflation/conflationOverlay.ts';
 import FeatureDetail from './features/conflation/FeatureDetail.tsx';
+import HexPopup from './features/conflation/HexPopup.tsx';
+import { hexBounds, type ClickedHex } from './features/conflation/hexBounds.ts';
 import LegendCard from './features/conflation/LegendCard.tsx';
 import { cameraCorrection } from './features/conflation/cameraCorrection.ts';
 import { openConflatedTiles, useConflatedDetail } from './features/conflation/useConflatedDetail.ts';
@@ -17,6 +19,8 @@ import SpiderViews from './features/spiders/SpiderViews.tsx';
 import { useSpiderStats } from './features/spiders/useSpiderStats.ts';
 import {
   DETAIL_ZOOM,
+  hexCounts,
+  isHexLayer,
   MATCHED_LAYER,
   overviewFacts,
   selectionFor,
@@ -93,6 +97,7 @@ export default function App() {
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const [hidden, setHidden] = useState<ReadonlySet<KnownRelation>>(new Set());
   const [clicked, setClicked] = useState<Clicked | null>(null);
+  const [clickedHex, setClickedHex] = useState<ClickedHex | null>(null);
   const wide = useWideScreen();
   const [collapsedWide, setCollapsed] = useState(false);
   // Only a column can be tucked away; a bottom sheet always peeks.
@@ -262,8 +267,18 @@ export default function App() {
 
   const onMapClick = useCallback(
     (feature: maplibregl.MapGeoJSONFeature | undefined, lngLat: maplibregl.LngLat) => {
+      setClickedHex(null);
       if (!feature || !map) {
         select(undefined);
+        return;
+      }
+      if (isHexLayer(feature.sourceLayer)) {
+        select(undefined);
+        setClickedHex({
+          hex: hexCounts(feature.properties as Properties),
+          sourceLayer: feature.sourceLayer!,
+          lngLat: [lngLat.lng, lngLat.lat],
+        });
         return;
       }
       const facts = overviewFacts(feature.properties as Properties);
@@ -286,6 +301,27 @@ export default function App() {
     [map],
   );
 
+  const closeHex = useCallback(() => setClickedHex(null), []);
+  const zoomIntoHex = useCallback(() => {
+    if (!map || !clickedHex) return;
+    setClickedHex(null);
+    const bounds = hexBounds(map, SOURCE_ID, clickedHex);
+    // A cell across the antimeridian would span the world; zoom at the
+    // click instead.
+    if (!bounds || bounds.getEast() - bounds.getWest() > 90) {
+      map.easeTo({ center: clickedHex.lngLat, zoom: Math.min(DETAIL_ZOOM, Math.floor(map.getZoom()) + 2) });
+      return;
+    }
+    map.fitBounds(bounds, { padding: { top: APP_BAR_PX + 40, bottom: 40, left: 40, right: 40 }, maxZoom: DETAIL_ZOOM + 1 });
+  }, [map, clickedHex]);
+
+  // A cell's popup goes once the map shows something else.
+  const [hexShownKey, setHexShownKey] = useState(shownKey);
+  if (hexShownKey !== shownKey) {
+    setHexShownKey(shownKey);
+    if (shownKey !== 'map') setClickedHex(null);
+  }
+
   const toggleRelation = useCallback((relation: KnownRelation) => {
     setHidden((previous) => {
       const next = new Set(previous);
@@ -299,12 +335,13 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (drawerOpen) setDrawerOpen(false);
+      else if (clickedHex) setClickedHex(null);
       else if (getRoute().selection) select(undefined);
       else if (getRoute().view.kind !== 'map') closeView();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [drawerOpen]);
+  }, [drawerOpen, clickedHex]);
 
   return (
     <div className={`app ${collapsed ? 'app--panel-collapsed' : ''}`}>
@@ -332,6 +369,10 @@ export default function App() {
           <SpiderViews view={view} state={stats} conflatedUrl={conflatedUrl} onZoomTo={zoomTo} />
         )}
       </SidePanel>
+
+      {map && clickedHex && (
+        <HexPopup map={map} clicked={clickedHex} hidden={hidden} onZoomIn={zoomIntoHex} onClose={closeHex} />
+      )}
 
       <AppBar onMenuClick={() => setDrawerOpen(true)} />
       <Drawer

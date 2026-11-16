@@ -1,7 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch>
 // SPDX-License-Identifier: MIT
 
+import { readFileSync } from 'node:fs';
 import Point from '@mapbox/point-geometry';
+import { VectorTile } from '@mapbox/vector-tile';
+import { PbfReader } from 'pbf';
+import { PMTiles, type RangeResponse, type Source } from 'pmtiles';
 import { fromVectorTileJs, type VectorTileFeatureLike } from '@maplibre/vt-pbf';
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,9 +15,13 @@ import {
   detailBlock,
   distanceMeters,
   findRecords,
+  HEX_LAYER,
+  hexCounts,
   isAtSelection,
   overviewFacts,
   selectionFor,
+  shownCount,
+  SPIDER_HEX_LAYER,
   tileFor,
   type Properties,
 } from './conflatedTiles.ts';
@@ -310,5 +318,79 @@ describe('ConflatedTiles.lookup', () => {
   it('takes the nearest branch after a click on a coarse tile', async () => {
     const records = await tiles.lookup(selection, LINKED);
     expect(records.map((r) => r.atpTags['addr:full'])).toEqual(['Badenerstrasse 9']);
+  });
+});
+
+describe('hexCounts', () => {
+  it('counts the relations the app draws, without deletion candidates', () => {
+    const hex = hexCounts({
+      h3: '871f8322dffffff',
+      n: 150,
+      same: 84,
+      missing_in_osm: 58,
+      located_in: 1,
+      deletion_candidate: 2,
+      z: 12,
+    });
+    expect(hex).toEqual({
+      h3: '871f8322dffffff',
+      counts: { same: 84, missing_in_osm: 58, located_in: 1, other: 5 },
+    });
+    expect(shownCount(hex, new Set())).toBe(148);
+    expect(shownCount(hex, new Set(['same', 'located_in']))).toBe(63);
+  });
+
+  it('reads a spider_hex cell, which has no deletion candidates', () => {
+    const hex = hexCounts({ h3: 'x', n: 3, same: 3, missing_in_osm: 0, located_in: 0, spider: 'aldi_sud_ch', z: 12 });
+    expect(hex.spider).toBe('aldi_sud_ch');
+    expect(hex.counts).toEqual({ same: 3, missing_in_osm: 0, located_in: 0, other: 0 });
+  });
+});
+
+// The sample archive cut from a Swiss run of brawer/osmdiffs#970.
+class FileSource implements Source {
+  constructor(private readonly bytes: Buffer) {}
+  getKey() {
+    return 'conflated-hex-sample.pmtiles';
+  }
+  async getBytes(offset: number, length: number): Promise<RangeResponse> {
+    const b = this.bytes;
+    return { data: b.buffer.slice(b.byteOffset + offset, b.byteOffset + offset + length) as ArrayBuffer };
+  }
+}
+
+describe('conflated-hex-sample.pmtiles', () => {
+  const archive = new PMTiles(new FileSource(readFileSync(new URL('./testdata/conflated-hex-sample.pmtiles', import.meta.url))));
+  const layers = async (z: number) => {
+    const [x, y] = tileFor(8.52, 47.17, z);
+    const res = await archive.getZxy(z, x, y);
+    return new VectorTile(new PbfReader(new Uint8Array(res!.data))).layers;
+  };
+
+  it('counts every overview row of the region in the z0 hexagon', async () => {
+    const hex = (await layers(0))[HEX_LAYER]!;
+    expect(hex.length).toBe(1);
+    const cell = hexCounts(hex.feature(0).properties);
+    // Nothing of an unknown relation; the rest of n is deletion candidates.
+    expect(cell.counts.other).toBe(0);
+    expect(shownCount(cell, new Set())).toBeGreaterThan(100000);
+  });
+
+  it('has hexagons at its own zoom only, next to the dots of that zoom', async () => {
+    for (const z of [5, 9, 12]) {
+      const tile = await layers(z);
+      for (const name of [HEX_LAYER, SPIDER_HEX_LAYER]) {
+        const layer = tile[name]!;
+        expect(layer.length).toBeGreaterThan(0);
+        for (let i = 0; i < layer.length; i++) {
+          const f = layer.feature(i);
+          expect(f.type).toBe(3);
+          expect(f.properties.z).toBe(z);
+          if (name === SPIDER_HEX_LAYER) expect(typeof f.properties.spider).toBe('string');
+        }
+      }
+      const pz = tile.unmatched ? tile.unmatched.feature(0).properties.pz : undefined;
+      if (pz !== undefined) expect(pz).toBeLessThanOrEqual(z);
+    }
   });
 });

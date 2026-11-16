@@ -1089,3 +1089,91 @@ button.legend-card__row:hover {
 .compass__tip {
   fill: var(--accent);
 }
+
+/* ---- Hexagon popup: what a cell on the map counts ---- */
+
+.hex-popup .maplibregl-popup-content {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  box-shadow: 0 2px 10px var(--shadow);
+  font: inherit;
+}
+
+.hex-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.hex-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.hex-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--paper-raised);
+}
+
+.hex-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.hex-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.hex-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--paper-raised);
+}
+
+.hex-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--paper-raised);
+}
+
+.hex-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--paper-raised);
+}
+
+.hex-popup .maplibregl-popup-close-button {
+  color: var(--ink-soft);
+  font-size: 1.1rem;
+  padding: 0 6px;
+}
+
+.hex-popup__title {
+  margin: 0 18px 6px 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.hex-popup__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hex-popup__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 0.82rem;
+}
+
+.hex-popup__label {
+  flex: 1;
+}
+
+.hex-popup__count {
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.hex-popup__zoom {
+  margin-top: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hex-popup__zoom:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.hex-popup__zoom:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
