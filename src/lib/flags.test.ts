@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { toSpiderStats, type BrandCount, type SpiderStats } from './data/spiderStats.ts';
-import { describeOffset, flagsFor } from './flags.ts';
+import { describeOffset, flagsFor, isAlwaysOpen } from './flags.ts';
 
 const BINS = [1, 10, 25, 50, 100, 250, 1000];
 
@@ -88,12 +88,36 @@ describe('flagsFor', () => {
     expect(ids(spider({ sharedPositions: 25 }))).not.toContain('stacked');
   });
 
+  it('counts stacking only within a kind where the file has it, so car dealers pass', () => {
+    // A dealer listing sales, service and parts at one spot.
+    expect(ids(spider({ sharedPositions: 90, sharedPositionsSameKind: 0 }))).not.toContain('stacked');
+    const s = spider({ sharedPositions: 90, sharedPositionsSameKind: 40 });
+    expect(flagsFor(s, BINS).find((f) => f.flag.id === 'stacked')?.reason).toBe(
+      '40% of features share their position with another of the same kind',
+    );
+  });
+
   it('flags the same hours everywhere, like shell', () => {
     expect(ids(spider({ openingHoursTopShare: 0.995 }))).toContain('same-hours');
     expect(ids(spider({ openingHoursTopShare: 0.95 }))).not.toContain('same-hours');
     expect(ids(spider({ openingHoursTopShare: 0.995, rows: 40, same: 40, dumpFeatures: 40, atpFeatures: 40 }))).not.toContain(
       'same-hours',
     );
+  });
+
+  it('names the hours everyone shares', () => {
+    const s = spider({ openingHoursTopShare: 0.995, openingHoursTopValue: 'Mo-Fr 08:00-17:00' });
+    expect(flagsFor(s, BINS).find((f) => f.flag.id === 'same-hours')?.reason).toBe(
+      '100% of features have “Mo-Fr 08:00-17:00”',
+    );
+    const long = spider({ openingHoursTopShare: 0.995, openingHoursTopValue: `Mo-Fr 08:00-17:00; ${'Sa 09:00-12:00; '.repeat(5)}` });
+    expect(flagsFor(long, BINS).find((f) => f.flag.id === 'same-hours')?.reason).toMatch(/^100% of features have “.{59}…”$/);
+  });
+
+  it('skips chains open around the clock', () => {
+    for (const value of ['24/7', 'Mo-Su 00:00-24:00', '00:00-24:00']) {
+      expect(ids(spider({ openingHoursTopShare: 1, openingHoursTopValue: value }))).not.toContain('same-hours');
+    }
   });
 
   it('flags chance matches', () => {
@@ -114,6 +138,15 @@ describe('flagsFor', () => {
   it('flags shared OpenStreetMap features', () => {
     expect(ids(spider({ sharedOsmFeatures: 21 }))).toContain('shared-osm');
     expect(ids(spider({ sharedOsmFeatures: 20 }))).not.toContain('shared-osm');
+  });
+
+  it('counts shared OpenStreetMap features only within a kind where the file has it', () => {
+    // A bank's branch and ATM matching one OpenStreetMap feature.
+    expect(ids(spider({ sharedOsmFeatures: 60, sharedOsmFeaturesSameKind: 4 }))).not.toContain('shared-osm');
+    const s = spider({ sharedOsmFeatures: 60, sharedOsmFeaturesSameKind: 30 });
+    expect(flagsFor(s, BINS).find((f) => f.flag.id === 'shared-osm')?.reason).toBe(
+      '30% of matches share their OpenStreetMap feature with one of the same kind',
+    );
   });
 
   it('flags low coverage, naming the largest gap', () => {
@@ -180,6 +213,42 @@ describe('flagsFor', () => {
 
   it('flags a license that excludes OpenStreetMap', () => {
     expect(ids(spider({ notForOsm: 100, rows: 0, same: 0 }))).toEqual(['no-license']);
+  });
+});
+
+describe('isAlwaysOpen', () => {
+  it('knows the ways spiders write around the clock', () => {
+    for (const value of [
+      '24/7',
+      ' 24/7 ',
+      'Mo-Su 00:00-24:00',
+      '00:00-24:00',
+      'Mo-Fr 00:00-24:00; Sa-Su 00:00-24:00',
+      'Mo-Fr 00:00-24:00, Sa,Su 00:00-24:00',
+      'Mo,Tu,We,Th,Fr,Sa,Su 00:00-24:00',
+      'Sa-Th 00:00-24:00; Fr 00:00-12:00,12:00-24:00',
+      'Mo-Su 00:00-24:00; PH 00:00-24:00',
+      '24/7; Mo-Su 00:00-24:00',
+    ]) {
+      expect(isAlwaysOpen(value), value).toBe(true);
+    }
+  });
+
+  it('rejects anything less, or anything it doesn’t understand', () => {
+    for (const value of [
+      '',
+      'Mo-Fr 08:00-17:00',
+      'Mo-Sa 00:00-24:00',
+      'Mo-Su 06:00-24:00',
+      'Mo-Su 00:00-12:00,13:00-24:00',
+      'Mo-Su 00:00-24:00; PH off',
+      'Jan-Mar Mo-Su 00:00-24:00',
+      'PH 00:00-24:00',
+      // Left to AllThePlaces to fix.
+      'Mo-Su 00:00-23:59',
+    ]) {
+      expect(isAlwaysOpen(value), value).toBe(false);
+    }
   });
 });
 

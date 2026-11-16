@@ -82,6 +82,27 @@ describe('toSpiderStats', () => {
     // Nor the Google Maps camera center probes, from before brawer/osmdiffs#973.
     expect(s.googleCameraCoordsHits).toBeNull();
     expect(s.sameGoogleCameraCoords).toBe(0);
+    // Nor the same-kind counts and top opening hours, from before brawer/osmdiffs#975.
+    expect(s.sharedPositionsSameKind).toBeNull();
+    expect(s.sharedOsmFeaturesSameKind).toBeNull();
+    expect(s.openingHoursTopValue).toBeNull();
+  });
+
+  it('reads the same-kind counts and the top opening hours', () => {
+    const s = toSpiderStats({
+      spider: 'renault',
+      shared_positions: 30n,
+      shared_positions_same_kind: 2n,
+      shared_osm_features: 25n,
+      shared_osm_features_same_kind: 0n,
+      opening_hours_top_share: 0.5,
+      opening_hours_top_value: 'Mo-Fr 08:00-18:00',
+    });
+    expect(s.sharedPositions).toBe(30);
+    expect(s.sharedPositionsSameKind).toBe(2);
+    expect(s.sharedOsmFeatures).toBe(25);
+    expect(s.sharedOsmFeaturesSameKind).toBe(0);
+    expect(s.openingHoursTopValue).toBe('Mo-Fr 08:00-18:00');
   });
 
   it('reads the Google Maps camera center probes', () => {

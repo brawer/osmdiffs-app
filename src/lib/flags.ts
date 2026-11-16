@@ -126,6 +126,88 @@ export function describeLongitudeShift(deg: number, latitude: number | null): st
   return `${degrees} (${Math.round(m)} m)`;
 }
 
+// Stacking among features of the same kind (brawer/osmdiffs#975), so that
+// a car dealer's sales and service, or a bank's branch and ATM, don't
+// count; older files only have the counts over all features.
+const sharedPositions = (s: SpiderStats) => s.sharedPositionsSameKind ?? s.sharedPositions;
+const sharedOsmFeatures = (s: SpiderStats) => s.sharedOsmFeaturesSameKind ?? s.sharedOsmFeatures;
+
+const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const DAY = '(?:Mo|Tu|We|Th|Fr|Sa|Su|PH|SH)';
+const DAY_SELECTOR = `${DAY}(?:\\s*-\\s*${DAY})?(?:\\s*,\\s*${DAY}(?:\\s*-\\s*${DAY})?)*`;
+const SPAN = '\\d{1,2}:\\d{2}\\s*-\\s*\\d{1,2}:\\d{2}';
+// One day selector, if any, with its time spans; a comma may follow and
+// start the next one, as in `Mo-Fr 00:00-24:00, Sa,Su 00:00-24:00`.
+const SEGMENT = new RegExp(`\\s*(${DAY_SELECTOR})?\\s*(${SPAN}(?:\\s*,\\s*${SPAN})*)\\s*(?:,|$)`, 'y');
+
+const minutes = (hhmm: string) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  return 60 * h! + m!;
+};
+
+// The weekdays (0 for Monday) of a selector such as `Mo-Fr,Su`; public
+// and school holidays add none.
+function weekdays(selector: string): number[] {
+  const days: number[] = [];
+  for (const part of selector.split(',')) {
+    const [from, to] = part.split('-').map((d) => DAYS.indexOf(d.trim()));
+    if (from === undefined || from < 0) continue;
+    const end = to === undefined ? from : to;
+    if (end < 0) continue;
+    for (let d = from; ; d = (d + 1) % 7) {
+      days.push(d);
+      if (d === end) break;
+    }
+  }
+  return days;
+}
+
+// Whether time spans such as `00:00-12:00,12:00-24:00` cover the day.
+function wholeDay(spans: string): boolean {
+  const ranges = spans
+    .split(',')
+    .map((span) => span.split('-').map((t) => minutes(t.trim())) as [number, number])
+    .sort((a, b) => a[0] - b[0]);
+  let covered = 0;
+  for (const [start, end] of ranges) {
+    if (start > covered) return false;
+    covered = Math.max(covered, end);
+  }
+  return covered >= 24 * 60;
+}
+
+// Whether an opening_hours value means open around the clock: `24/7`,
+// but also `Mo-Su 00:00-24:00`, `00:00-24:00` or `Mo-Fr 00:00-24:00;
+// Sa,Su 00:00-24:00`, where every rule covers whole days and together they
+// cover the week. Anything this doesn't understand, such as `off` or
+// month selectors, counts as not always open.
+export function isAlwaysOpen(value: string): boolean {
+  const covered = new Set<number>();
+  for (const rule of value.split(/;|\|\|/)) {
+    const text = rule.trim();
+    if (text === '') continue;
+    if (text === '24/7') {
+      DAYS.forEach((_, d) => covered.add(d));
+      continue;
+    }
+    SEGMENT.lastIndex = 0;
+    while (SEGMENT.lastIndex < text.length) {
+      const m = SEGMENT.exec(text);
+      if (!m) return false;
+      const [, selector, spans] = m;
+      if (!wholeDay(spans!)) return false;
+      (selector ? weekdays(selector) : DAYS.map((_, d) => d)).forEach((d) => covered.add(d));
+    }
+  }
+  return covered.size === DAYS.length;
+}
+
+// Opening hours to quote in a reason, cut if long.
+function quoteHours(value: string): string {
+  const max = 60;
+  return `“${value.length > max ? `${value.slice(0, max - 1)}…` : value}”`;
+}
+
 // Minimum sizes, below which a share says little.
 const MIN_MATCHES = 20;
 const MIN_ROWS = 20;
@@ -177,18 +259,32 @@ export const FLAGS: Flag[] = [
     label: 'Stacked',
     likelyCause: 'spider',
     // Car dealers and banks often list sales, service and an ATM at one
-    // spot, which is right; 10% caught too many of them.
-    test: (s) => s.rows >= MIN_ROWS && s.sharedPositions / s.rows > 0.25,
-    explain: (s) => `${percent(s.sharedPositions, s.rows)} of features share their position with another`,
+    // spot, which is right; 10% caught too many of them. Files from
+    // brawer/osmdiffs#975 on leave those out, so this can come down once
+    // retuned on a planet run with them.
+    test: (s) => s.rows >= MIN_ROWS && sharedPositions(s) / s.rows > 0.25,
+    explain: (s) =>
+      `${percent(sharedPositions(s), s.rows)} of features share their position with another` +
+      (s.sharedPositionsSameKind === null ? '' : ' of the same kind'),
   },
   {
     id: 'same-hours',
     label: 'Same hours everywhere',
     likelyCause: 'spider',
     // 24/7 convenience stores and fuel stations really do share their
-    // hours, so only nearly all alike counts.
-    test: (s) => (s.openingHoursTopShare ?? 0) > 0.99 && s.rows >= 50,
-    explain: (s) => `${Math.round((s.openingHoursTopShare ?? 0) * 100)}% of features have the same opening hours`,
+    // hours. Files from brawer/osmdiffs#975 on say which hours, so those
+    // are skipped; older ones need nearly all alike. The threshold can
+    // likely come down once retuned on a planet run with them.
+    test: (s) =>
+      (s.openingHoursTopShare ?? 0) > 0.99 &&
+      s.rows >= 50 &&
+      (s.openingHoursTopValue === null || !isAlwaysOpen(s.openingHoursTopValue)),
+    explain: (s) => {
+      const share = `${Math.round((s.openingHoursTopShare ?? 0) * 100)}%`;
+      return s.openingHoursTopValue === null
+        ? `${share} of features have the same opening hours`
+        : `${share} of features have ${quoteHours(s.openingHoursTopValue)}`;
+    },
   },
   {
     id: 'chance',
@@ -215,8 +311,10 @@ export const FLAGS: Flag[] = [
     id: 'shared-osm',
     label: 'Shared OSM features',
     likelyCause: 'source',
-    test: (s) => s.same >= MIN_MATCHES && s.sharedOsmFeatures / s.same > 0.2,
-    explain: (s) => `${percent(s.sharedOsmFeatures, s.same)} of matches share their OpenStreetMap feature`,
+    test: (s) => s.same >= MIN_MATCHES && sharedOsmFeatures(s) / s.same > 0.2,
+    explain: (s) =>
+      `${percent(sharedOsmFeatures(s), s.same)} of matches share their OpenStreetMap feature` +
+      (s.sharedOsmFeaturesSameKind === null ? '' : ' with one of the same kind'),
   },
   {
     id: 'google-camera-coords',
