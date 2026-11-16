@@ -73,6 +73,12 @@ export interface SpiderStats {
   sameGoogleCameraCoords: number;
   sharedOsmFeatures: number;
   sharedPositions: number;
+  // The same, but only among features of the same kind: the same main
+  // category and the same brand, operator and network Wikidata IDs, so
+  // that a car dealer's sales and service, or a bank's branch and ATM,
+  // don't count. Null in files from before brawer/osmdiffs#975.
+  sharedOsmFeaturesSameKind: number | null;
+  sharedPositionsSameKind: number | null;
   offsetEastM: number | null;
   offsetNorthM: number | null;
   // Null for a spider without rows, and in files from before v0.8.17.
@@ -86,6 +92,9 @@ export interface SpiderStats {
   chanceSampled: number;
   chanceMatched: number;
   openingHoursTopShare: number | null;
+  // The most common opening_hours, as the spider wrote it. Null if no
+  // feature has any, and in files from before brawer/osmdiffs#975.
+  openingHoursTopValue: string | null;
   rules: RuleCount[];
   tags: TagCount[];
   brands: BrandCount[];
@@ -173,6 +182,8 @@ export function toSpiderStats(r: Raw): SpiderStats {
     sameGoogleCameraCoords: count(r.same_google_camera_coords),
     sharedOsmFeatures: count(r.shared_osm_features),
     sharedPositions: count(r.shared_positions),
+    sharedOsmFeaturesSameKind: num(r.shared_osm_features_same_kind),
+    sharedPositionsSameKind: num(r.shared_positions_same_kind),
     offsetEastM: num(r.offset_east_m),
     offsetNorthM: num(r.offset_north_m),
     bbox: bbox(r.bbox),
@@ -184,6 +195,7 @@ export function toSpiderStats(r: Raw): SpiderStats {
     chanceSampled: count(r.chance_sampled),
     chanceMatched: count(r.chance_matched),
     openingHoursTopShare: num(r.opening_hours_top_share),
+    openingHoursTopValue: str(r.opening_hours_top_value),
     rules: list(r.rules).map((x) => ({ rule: String(x.rule), rows: count(x.rows) })),
     tags: list(r.tags).map((x) => ({
       tag: String(x.tag),
