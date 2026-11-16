@@ -147,6 +147,33 @@ describe('decodeTile and findRecords', () => {
     expect(record!.atpPosition![1]).toBeCloseTo(KIOSK_ATP[1], 4);
   });
 
+  it('reads a position moved east from a Google Maps camera center', () => {
+    const shift = 0.0022;
+    const moved = encode({
+      matched: [
+        {
+          point: [8.5402, 47.3775],
+          properties: {
+            fid: 3,
+            part: 'atp',
+            relation: 'same',
+            spider: 'c_and_a',
+            position: 'google_camera_coords',
+            position_shift_deg: shift,
+          },
+        },
+        {
+          point: [8.5402, 47.3775],
+          properties: { fid: 3, part: 'osm', relation: 'same', spider: 'c_and_a', 'osm:type': 'node', 'osm:id': 1 },
+        },
+      ],
+    });
+    const [record] = findRecords(decodeTile(moved, X, Y, Z), { kind: 'osm', type: 'node', id: 1 });
+    expect(record?.positionShiftDeg).toBeCloseTo(shift, 6);
+    // Rows that weren't moved say nothing.
+    expect(findRecords(features, { kind: 'osm', type: 'node', id: 4424939151 })[0]?.positionShiftDeg).toBeUndefined();
+  });
+
   it('finds the nearest AllThePlaces point of the same spider', () => {
     const records = findRecords(features, { kind: 'atp', spider: 'coop_pronto_ch', lng: 8.5392, lat: 47.3762 });
     expect(records.map((r) => r.atpTags.name)).toEqual(['Near']);

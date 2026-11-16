@@ -128,6 +128,56 @@ describe('flagsFor', () => {
     expect(ids(spider({ brands: [brand({ atpFeatures: 25, osmFeatures: 800 })] }))).not.toContain('low-coverage');
   });
 
+  it('flags positions copied from Google Maps, like c_and_a in Switzerland', () => {
+    const s = spider({
+      bbox: { xmin: 5.9, ymin: 45.8, xmax: 10.5, ymax: 47.8 },
+      exactCoordsHits: 0,
+      googleCameraCoordsHits: 46,
+      googleCameraCoordsControl: 0,
+      googleCameraCoordsOffsetDeg: -0.0022116,
+      sameGoogleCameraCoords: 60,
+    });
+    const [flag, ...rest] = flagsFor(s, BINS);
+    expect(rest).toEqual([]);
+    expect(flag?.flag.id).toBe('google-camera-coords');
+    expect(flag?.flag.likelyCause).toBe('source');
+    expect(flag?.reason).toBe(
+      '100% of the features checked sit 0.0022° (169 m) west of an OpenStreetMap feature of the brand, ' +
+        'as Google Maps camera centers do; 60 matches used the corrected position',
+    );
+  });
+
+  it('leaves out the meters without a bounding box', () => {
+    const s = spider({
+      exactCoordsHits: 30,
+      googleCameraCoordsHits: 20,
+      googleCameraCoordsControl: 1,
+      googleCameraCoordsOffsetDeg: -0.0022,
+      sameGoogleCameraCoords: 1,
+    });
+    expect(flagsFor(s, BINS)[0]?.reason).toBe(
+      '40% of the features checked sit 0.0022° west of an OpenStreetMap feature of the brand, ' +
+        'as Google Maps camera centers do; 1 match used the corrected position',
+    );
+  });
+
+  it('applies the pipeline’s rule for Google Maps camera centers', () => {
+    const camera = (hits: number, control: number, exact: number) =>
+      ids(spider({ googleCameraCoordsHits: hits, googleCameraCoordsControl: control, exactCoordsHits: exact }));
+    expect(camera(8, 1, 72)).toContain('google-camera-coords');
+    // Too few hits.
+    expect(camera(7, 0, 0)).not.toContain('google-camera-coords');
+    // Dense data, such as stadt_zuerich_ch's trees: as many controls.
+    expect(camera(516, 505, 0)).not.toContain('google-camera-coords');
+    expect(camera(12, 2, 0)).toContain('google-camera-coords');
+    expect(camera(11, 2, 0)).not.toContain('google-camera-coords');
+    // A large spider with a few stores entered by hand, like valora.
+    expect(camera(9, 0, 373)).not.toContain('google-camera-coords');
+    expect(camera(8, 1, 73)).not.toContain('google-camera-coords');
+    // Files from before brawer/osmdiffs#973.
+    expect(ids(spider())).not.toContain('google-camera-coords');
+  });
+
   it('flags a license that excludes OpenStreetMap', () => {
     expect(ids(spider({ notForOsm: 100, rows: 0, same: 0 }))).toEqual(['no-license']);
   });

@@ -5,8 +5,9 @@
 // knows right away, then the full record once the detail tiles are in.
 
 import { Fragment, type ReactNode } from 'react';
-import type { ConflatedRecord, OverviewFacts } from '../../lib/data/conflatedTiles.ts';
+import { distanceMeters, type ConflatedRecord, type OverviewFacts } from '../../lib/data/conflatedTiles.ts';
 import type { Selection } from '../../lib/route.ts';
+import type { CameraCorrection } from './cameraCorrection.ts';
 import { compareTags, type TagAgreement } from './compareTags.ts';
 import { relationLabel, relationToken } from './relations.ts';
 import type { DetailState } from './useConflatedDetail.ts';
@@ -24,6 +25,10 @@ function osmUrl(osm: { type: string; id: number }): string {
 
 function spiderUrl(spider: string): string {
   return `https://github.com/alltheplaces/alltheplaces/blob/master/locations/spiders/${encodeURIComponent(spider)}.py`;
+}
+
+function spotUrl(position: number[]): string {
+  return `https://www.openstreetmap.org/#map=19/${position[1]!.toFixed(6)}/${position[0]!.toFixed(6)}`;
 }
 
 function formatMeters(m: number): string {
@@ -60,13 +65,43 @@ function RelationChip({ relation }: { relation: string }) {
   );
 }
 
+// A place whose position looks copied from a Google Maps URL, the map's
+// camera center west of the place. The map draws a line between the two.
+function CorrectedPosition({ correction }: { correction: CameraCorrection }) {
+  const { kind, published, corrected, shiftDeg } = correction;
+  const amount = `${Math.abs(shiftDeg).toFixed(4)}° (${formatMeters(distanceMeters(published, corrected))})`;
+  const direction = shiftDeg < 0 ? 'west' : 'east';
+  return (
+    <>
+      <dt>Position</dt>
+      {kind === 'moved' ? (
+        <dd>
+          Moved {amount} {direction} from where AllThePlaces put it, which looks like a Google Maps camera center.{' '}
+          <a href={spotUrl(published)} target="_blank" rel="noreferrer">
+            Open the original spot on OpenStreetMap
+          </a>
+        </dd>
+      ) : (
+        <dd>
+          Its spider’s positions often look copied from Google Maps. If this one is too, the place is {amount}{' '}
+          {direction} of where AllThePlaces put it.{' '}
+          <a href={spotUrl(corrected)} target="_blank" rel="noreferrer">
+            Open that spot on OpenStreetMap
+          </a>
+        </dd>
+      )}
+    </>
+  );
+}
+
 interface FactsProps {
   record: ConflatedRecord | undefined;
+  correction: CameraCorrection | undefined;
   facts: OverviewFacts | undefined;
   selection: Selection;
 }
 
-function Facts({ record, facts, selection }: FactsProps) {
+function Facts({ record, facts, selection, correction }: FactsProps) {
   const spider = record?.spider ?? facts?.spider ?? (selection.kind === 'atp' ? selection.spider : undefined);
   const osm = record?.osm ?? facts?.osm ?? (selection.kind === 'osm' ? selection : undefined);
   const relation = record?.relation ?? facts?.relation;
@@ -103,16 +138,13 @@ function Facts({ record, facts, selection }: FactsProps) {
         <>
           <dt>Location</dt>
           <dd>
-            <a
-              href={`https://www.openstreetmap.org/#map=19/${position[1]!.toFixed(6)}/${position[0]!.toFixed(6)}`}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a href={spotUrl(position)} target="_blank" rel="noreferrer">
               Open this spot on OpenStreetMap
             </a>
           </dd>
         </>
       )}
+      {correction && <CorrectedPosition correction={correction} />}
     </dl>
   );
 }
@@ -165,9 +197,11 @@ interface FeatureDetailProps {
   // What the clicked feature said, if the selection came from a click.
   facts: OverviewFacts | undefined;
   detail: DetailState;
+  // For a place whose position looks copied from Google Maps.
+  correction?: CameraCorrection | undefined;
 }
 
-export default function FeatureDetail({ selection, facts, detail }: FeatureDetailProps) {
+export default function FeatureDetail({ selection, facts, detail, correction }: FeatureDetailProps) {
   const records = detail.status === 'ready' ? detail.records : [];
   const first = records[0];
   const relation = first?.relation ?? facts?.relation;
@@ -175,7 +209,7 @@ export default function FeatureDetail({ selection, facts, detail }: FeatureDetai
     <article className="detail">
       <h2 className="detail__title">{title(first, selection)}</h2>
       {relation && <RelationChip relation={relation} />}
-      <Facts record={first} facts={facts} selection={selection} />
+      <Facts record={first} facts={facts} selection={selection} correction={correction} />
       {detail.status === 'loading' && <p className="detail__status">Loading details…</p>}
       {detail.status === 'unavailable' && <p className="detail__status">Details unavailable here.</p>}
       {detail.status === 'error' && <p className="detail__status">Couldn’t load the details. Try again later.</p>}

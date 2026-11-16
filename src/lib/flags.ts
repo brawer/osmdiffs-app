@@ -19,6 +19,8 @@ export interface Flag {
   id: string;
   label: string;
   likelyCause: LikelyCause;
+  // Says who is likely at fault where CAUSE_LABELS is too broad.
+  causeLabel?: string;
   // Whether the flag applies; `bins` are the distance histogram's bounds.
   test: (s: SpiderStats, bins: number[]) => boolean;
   // A one-line reason, with the numbers.
@@ -78,6 +80,50 @@ export function lowCoverageBrands(s: SpiderStats): BrandCount[] {
       2 * b.atpFeatures >= s.rows &&
       b.osmFeatures > 2 * b.atpFeatures,
   );
+}
+
+// Positions copied from Google Maps place URLs (brawer/osmdiffs#973).
+// The `@lat,lon` of such a URL is the map's camera center, about 0.0022°
+// of longitude west of the place. The rule is the pipeline's own, which
+// decides whether conflation tries the corrected position too: enough
+// hits, well above the mirrored control window (dense data such as city
+// trees has about as many of each), and at least a tenth of the probed
+// features, so that a large spider with a few stores entered by hand
+// isn't flagged.
+export interface CameraCounts {
+  exact: number;
+  hits: number;
+  control: number;
+}
+
+export function cameraCounts(s: SpiderStats): CameraCounts | null {
+  if (s.googleCameraCoordsHits === null) return null;
+  return {
+    exact: s.exactCoordsHits ?? 0,
+    hits: s.googleCameraCoordsHits,
+    control: s.googleCameraCoordsControl ?? 0,
+  };
+}
+
+export function hasGoogleCameraCoords(s: SpiderStats): boolean {
+  const c = cameraCounts(s);
+  return c !== null && c.hits >= 8 && c.hits >= 4 * (c.control + 1) && 10 * c.hits >= c.hits + c.exact;
+}
+
+const METERS_PER_DEGREE = 111_320;
+
+// The latitude in the middle of a spider's features, if known; the file
+// has no median, so this is the middle of its box.
+function middleLatitude(s: SpiderStats): number | null {
+  return s.bbox ? (s.bbox.ymin + s.bbox.ymax) / 2 : null;
+}
+
+// "0.0022°", and "0.0022° (165 m)" where the latitude is known.
+export function describeLongitudeShift(deg: number, latitude: number | null): string {
+  const degrees = `${Math.abs(deg).toFixed(4)}°`;
+  if (latitude === null) return degrees;
+  const m = Math.abs(deg) * METERS_PER_DEGREE * Math.cos((latitude * Math.PI) / 180);
+  return `${degrees} (${Math.round(m)} m)`;
 }
 
 // Minimum sizes, below which a share says little.
@@ -171,6 +217,25 @@ export const FLAGS: Flag[] = [
     likelyCause: 'source',
     test: (s) => s.same >= MIN_MATCHES && s.sharedOsmFeatures / s.same > 0.2,
     explain: (s) => `${percent(s.sharedOsmFeatures, s.same)} of matches share their OpenStreetMap feature`,
+  },
+  {
+    id: 'google-camera-coords',
+    label: 'Positions copied from Google Maps',
+    // The brand's own data, unless the spider reads positions from Google
+    // Maps links with url_to_coords (alltheplaces/alltheplaces#20570).
+    likelyCause: 'source',
+    causeLabel: 'The brand’s data',
+    test: hasGoogleCameraCoords,
+    explain: (s) => {
+      const { exact, hits } = cameraCounts(s)!;
+      const offset = s.googleCameraCoordsOffsetDeg;
+      const where =
+        offset === null ? 'west' : `${describeLongitudeShift(offset, middleLatitude(s))} ${offset < 0 ? 'west' : 'east'}`;
+      return (
+        `${percent(hits, exact + hits)} of the features checked sit ${where} of an OpenStreetMap feature of the brand, ` +
+        `as Google Maps camera centers do; ${s.sameGoogleCameraCoords} ${s.sameGoogleCameraCoords === 1 ? 'match' : 'matches'} used the corrected position`
+      );
+    },
   },
   {
     id: 'low-coverage',
