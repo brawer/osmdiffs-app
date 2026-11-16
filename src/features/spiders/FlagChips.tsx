@@ -24,7 +24,7 @@ export function FlagList({ flags }: { flags: RaisedFlag[] }) {
       {flags.map(({ flag, reason }) => (
         <li key={flag.id} className="flag-list__item">
           <span className={`flag-chip flag-chip--${flag.info ? 'info' : flag.likelyCause}`}>{flag.label}</span>
-          <span className="flag-list__cause">{CAUSE_LABELS[flag.likelyCause]}</span>
+          <span className="flag-list__cause">{flag.causeLabel ?? CAUSE_LABELS[flag.likelyCause]}</span>
           <span className="flag-list__reason">{reason}</span>
         </li>
       ))}

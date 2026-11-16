@@ -50,6 +50,10 @@ export interface OverviewFacts {
   osm?: { type: OsmType; id: number };
 }
 
+// The `position` of an AllThePlaces point moved east from a Google Maps
+// camera center, with `position_shift_deg` saying how far.
+export const GOOGLE_CAMERA_COORDS = 'google_camera_coords';
+
 // One conflated.parquet row, put back together from its detail features.
 export interface ConflatedRecord {
   // The per-run ID its detail features share.
@@ -59,8 +63,14 @@ export interface ConflatedRecord {
   // Tags without their "atp:" or "osm:" prefix.
   atpTags: Record<string, string>;
   osmTags: Record<string, string>;
-  // Where AllThePlaces puts the place, as [lng, lat].
+  // Where the AllThePlaces side is drawn, as [lng, lat]. Usually where
+  // AllThePlaces puts the place, but see positionShiftDeg.
   atpPosition?: Position;
+  // For a feature whose position looks copied from a Google Maps URL
+  // and that matched better moved east (brawer/osmdiffs#973): how far,
+  // in degrees of longitude. atpPosition is then the moved position;
+  // subtract this to get the one AllThePlaces gave.
+  positionShiftDeg?: number;
   osm?: { type: OsmType; id: number };
   // The connector line's length; undefined when there is no line, which
   // the pipeline omits for offsets under 5 m.
@@ -193,6 +203,9 @@ function assemble(parts: TileFeature[]): ConflatedRecord {
         record.atpTags = prefixed(props, 'atp:');
         const geometry = part.geometry();
         if (geometry.type === 'Point') record.atpPosition = geometry.coordinates;
+        if (props.position === GOOGLE_CAMERA_COORDS && typeof props.position_shift_deg === 'number') {
+          record.positionShiftDeg = props.position_shift_deg;
+        }
         break;
       }
       case 'osm':

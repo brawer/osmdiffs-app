@@ -79,6 +79,27 @@ describe('toSpiderStats', () => {
     // Files from before v0.8.17 have no bounding boxes.
     expect(s.bbox).toBeNull();
     expect(s.brands[0]?.bbox).toBeNull();
+    // Nor the Google Maps camera center probes, from before brawer/osmdiffs#973.
+    expect(s.googleCameraCoordsHits).toBeNull();
+    expect(s.sameGoogleCameraCoords).toBe(0);
+  });
+
+  it('reads the Google Maps camera center probes', () => {
+    const s = toSpiderStats({
+      spider: 'c_and_a',
+      exact_coords_hits: 0n,
+      google_camera_coords_hits: 46n,
+      google_camera_coords_control: 0n,
+      google_camera_coords_offset_deg: -0.0022116,
+      same_google_camera_coords: 60n,
+    });
+    expect(s).toMatchObject({
+      exactCoordsHits: 0,
+      googleCameraCoordsHits: 46,
+      googleCameraCoordsControl: 0,
+      googleCameraCoordsOffsetDeg: -0.0022116,
+      sameGoogleCameraCoords: 60,
+    });
   });
 
   it('reads bounding boxes', () => {

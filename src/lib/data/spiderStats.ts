@@ -53,10 +53,24 @@ export interface SpiderStats {
   inChina: number | null;
   datum: string | null;
   datasetAttributes: Record<string, string> | null;
+  // Probes for positions copied from Google Maps place URLs, whose
+  // `@lat,lon` is the map's camera center, about 0.0022° of longitude
+  // west of the place (brawer/osmdiffs#973). Null in older files.
+  // Features within 30 m of an OSM feature with the same Wikidata ID.
+  exactCoordsHits: number | null;
+  // Features that aren't, but have one 0.0018–0.0030° east.
+  googleCameraCoordsHits: number | null;
+  // The same in the mirrored window to the west.
+  googleCameraCoordsControl: number | null;
+  // Median longitude offset of the hits, ATP minus OSM, so negative.
+  googleCameraCoordsOffsetDeg: number | null;
   rows: number;
   same: number;
   locatedIn: number;
   missingInOsm: number;
+  // `same` rows that matched at the position corrected for a Google Maps
+  // camera center; their distances are measured from there.
+  sameGoogleCameraCoords: number;
   sharedOsmFeatures: number;
   sharedPositions: number;
   offsetEastM: number | null;
@@ -148,10 +162,15 @@ export function toSpiderStats(r: Raw): SpiderStats {
     inChina: num(r.in_china),
     datum: str(r.datum),
     datasetAttributes: stringMap(r.dataset_attributes),
+    exactCoordsHits: num(r.exact_coords_hits),
+    googleCameraCoordsHits: num(r.google_camera_coords_hits),
+    googleCameraCoordsControl: num(r.google_camera_coords_control),
+    googleCameraCoordsOffsetDeg: num(r.google_camera_coords_offset_deg),
     rows: count(r.rows),
     same: count(r.same),
     locatedIn: count(r.located_in),
     missingInOsm: count(r.missing_in_osm),
+    sameGoogleCameraCoords: count(r.same_google_camera_coords),
     sharedOsmFeatures: count(r.shared_osm_features),
     sharedPositions: count(r.shared_positions),
     offsetEastM: num(r.offset_east_m),

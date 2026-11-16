@@ -12,7 +12,7 @@ import Link from '../../components/Link.tsx';
 import { toView } from '../../components/linkTo.ts';
 import type { Bbox } from '../../lib/data/bbox.ts';
 import type { BrandCount, SpiderStats } from '../../lib/data/spiderStats.ts';
-import { describeOffset, flagsFor, shiftedBrands } from '../../lib/flags.ts';
+import { cameraCounts, describeOffset, flagsFor, hasGoogleCameraCoords, shiftedBrands } from '../../lib/flags.ts';
 import { FlagList } from './FlagChips.tsx';
 
 interface SpiderPageProps {
@@ -86,6 +86,45 @@ function sourceSearchUrl(spider: string): string {
   // for the file rather than build its path.
   const q = `repo:alltheplaces/alltheplaces path:locations/spiders filename:${spider}.py`;
   return `https://github.com/search?type=code&q=${encodeURIComponent(q)}`;
+}
+
+// The Google Maps camera center probes, where the spider has any hits,
+// so that one can see why a dense spider wasn't flagged: city trees can
+// have as many features in the control window as in the probed one.
+function CameraProbes({ s }: { s: SpiderStats }) {
+  const counts = cameraCounts(s);
+  if (!counts || counts.hits === 0) return null;
+  return (
+    <>
+      <p className="stats__note">
+        Each feature with a brand, operator or network ID was checked for an OpenStreetMap feature with the same ID
+        nearby. A Google Maps camera center lies about 0.0022° of longitude west of its place, so a spider with such
+        positions has many more features with one to the east than to the west.
+      </p>
+      <table className="stats-table">
+        <thead>
+          <tr>
+            <th>OpenStreetMap feature of the brand</th>
+            <th className="num">Features</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Within 30 m</td>
+            <td className="num">{fmt(counts.exact)}</td>
+          </tr>
+          <tr>
+            <td title="Less than 0.0003° north or south">0.0018–0.0030° east, and not within 30 m</td>
+            <td className="num">{fmt(counts.hits)}</td>
+          </tr>
+          <tr>
+            <td title="Less than 0.0003° north or south">0.0018–0.0030° west, for comparison</td>
+            <td className="num">{fmt(counts.control)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -170,6 +209,15 @@ export default function SpiderPage({ stats: s, bins, conflatedUrl, onZoomTo }: S
               : `Matches lie a median ${describeOffset(s.offsetEastM, s.offsetNorthM)} of their OpenStreetMap feature.`}
           </p>
         </div>
+        {hasGoogleCameraCoords(s) && (
+          <p className="stats__note">
+            Its positions look copied from Google Maps, so conflation also tried each feature moved east to where the
+            place would be. {fmt(s.sameGoogleCameraCoords)} of {fmt(s.same)} matches were found there, and are measured
+            from the corrected position: the compass and the distances above show the spider after the correction, not
+            as published.
+          </p>
+        )}
+        <CameraProbes s={s} />
         {withOffset.length > 1 && (
           <table className="stats-table">
             <thead>

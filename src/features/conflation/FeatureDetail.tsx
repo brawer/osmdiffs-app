@@ -5,7 +5,7 @@
 // knows right away, then the full record once the detail tiles are in.
 
 import { Fragment, type ReactNode } from 'react';
-import type { ConflatedRecord, OverviewFacts } from '../../lib/data/conflatedTiles.ts';
+import { distanceMeters, type ConflatedRecord, type OverviewFacts } from '../../lib/data/conflatedTiles.ts';
 import type { Selection } from '../../lib/route.ts';
 import { compareTags, type TagAgreement } from './compareTags.ts';
 import { relationLabel, relationToken } from './relations.ts';
@@ -24,6 +24,10 @@ function osmUrl(osm: { type: string; id: number }): string {
 
 function spiderUrl(spider: string): string {
   return `https://github.com/alltheplaces/alltheplaces/blob/master/locations/spiders/${encodeURIComponent(spider)}.py`;
+}
+
+function spotUrl(position: number[]): string {
+  return `https://www.openstreetmap.org/#map=19/${position[1]!.toFixed(6)}/${position[0]!.toFixed(6)}`;
 }
 
 function formatMeters(m: number): string {
@@ -57,6 +61,26 @@ function RelationChip({ relation }: { relation: string }) {
       <span className="relation-chip__swatch" style={{ background: relationToken(relation) }} aria-hidden="true" />
       {relationLabel(relation)}
     </span>
+  );
+}
+
+// A feature whose position looks copied from a Google Maps URL, the
+// map's camera center west of the place, and that matched better moved
+// east: it is drawn, and its distance measured, at the moved position.
+function MovedPosition({ position, shiftDeg }: { position: number[]; shiftDeg: number }) {
+  const original = [position[0]! - shiftDeg, position[1]!];
+  const meters = distanceMeters(original, position);
+  return (
+    <>
+      <dt>Position</dt>
+      <dd>
+        Moved {Math.abs(shiftDeg).toFixed(4)}° ({formatMeters(meters)}) {shiftDeg < 0 ? 'west' : 'east'} from where
+        AllThePlaces put it, which looks like a Google Maps camera center.{' '}
+        <a href={spotUrl(original)} target="_blank" rel="noreferrer">
+          Open the original spot on OpenStreetMap
+        </a>
+      </dd>
+    </>
   );
 }
 
@@ -103,15 +127,14 @@ function Facts({ record, facts, selection }: FactsProps) {
         <>
           <dt>Location</dt>
           <dd>
-            <a
-              href={`https://www.openstreetmap.org/#map=19/${position[1]!.toFixed(6)}/${position[0]!.toFixed(6)}`}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a href={spotUrl(position)} target="_blank" rel="noreferrer">
               Open this spot on OpenStreetMap
             </a>
           </dd>
         </>
+      )}
+      {position && record?.positionShiftDeg !== undefined && (
+        <MovedPosition position={position} shiftDeg={record.positionShiftDeg} />
       )}
     </dl>
   );
