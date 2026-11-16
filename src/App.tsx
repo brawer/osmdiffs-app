@@ -10,6 +10,7 @@ import SidePanel, { APP_BAR_PX, PEEK_PX } from './components/SidePanel.tsx';
 import { conflationOverlay, SOURCE_ID } from './features/conflation/conflationOverlay.ts';
 import FeatureDetail from './features/conflation/FeatureDetail.tsx';
 import LegendCard from './features/conflation/LegendCard.tsx';
+import { cameraCorrection } from './features/conflation/cameraCorrection.ts';
 import { openConflatedTiles, useConflatedDetail } from './features/conflation/useConflatedDetail.ts';
 import { useInViewCounts } from './features/conflation/useInViewCounts.ts';
 import SpiderViews from './features/spiders/SpiderViews.tsx';
@@ -140,7 +141,15 @@ export default function App() {
 
   const view = route.view;
   const spider = view.kind === 'spider' ? view.spider : undefined;
-  const stats = useSpiderStats(datapackage, view.kind !== 'map');
+  // Also for an unmatched place, which may be of a spider whose positions
+  // look copied from Google Maps.
+  const stats = useSpiderStats(datapackage, view.kind !== 'map' || selRelation === 'missing_in_osm');
+  const selStats =
+    firstRecord && stats.status === 'ready'
+      ? stats.file.spiders.find((s) => s.spider === firstRecord.spider)
+      : undefined;
+  const correction = cameraCorrection(firstRecord, selStats);
+  const correctionKey = correction ? JSON.stringify(correction) : '';
   const conflatedUrl = datapackage ? getResource(datapackage, 'conflated')?.url : undefined;
 
   // At rest, the panel shows the legend; otherwise a place or a view.
@@ -239,11 +248,12 @@ export default function App() {
             selectedFids: selFids,
             selectedImportance: selImportance,
             spider,
+            correction,
           })
         : null,
     // The selection and its fids are compared by value, through keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tiles, hidden, selectionKey, selLng, selLat, selRelation, selFidsKey, selImportance, spider],
+    [tiles, hidden, selectionKey, selLng, selLat, selRelation, selFidsKey, selImportance, spider, correctionKey],
   );
 
   const onCameraChange = useCallback((camera: Camera) => {
@@ -315,7 +325,7 @@ export default function App() {
         onToggleCollapsed={() => setCollapsed((c) => !c)}
       >
         {selection ? (
-          <FeatureDetail selection={selection} facts={click?.facts} detail={detail} />
+          <FeatureDetail selection={selection} facts={click?.facts} detail={detail} correction={correction} />
         ) : view.kind === 'map' ? (
           <LegendCard counts={tiles ? counts : undefined} hidden={hidden} onToggle={toggleRelation} />
         ) : (

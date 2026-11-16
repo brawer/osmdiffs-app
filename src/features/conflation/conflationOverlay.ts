@@ -21,11 +21,13 @@ import {
   type KnownRelation,
 } from '../../lib/data/conflatedTiles.ts';
 import type { Selection } from '../../lib/route.ts';
+import type { CameraCorrection } from './cameraCorrection.ts';
 import type { MapColors } from '../../map/mapColors.ts';
 import type { Overlay } from '../../map/overlay.ts';
 
 export const SOURCE_ID = 'conflated';
 const SELECTION_SOURCE_ID = 'selection';
+const CORRECTION_SOURCE_ID = 'camera-correction';
 
 export interface ConflationOptions {
   // The `pmtiles://` URL of the archive.
@@ -42,6 +44,30 @@ export interface ConflationOptions {
   selectedImportance?: number | undefined;
   // Draws only this spider's features, for its spider page.
   spider?: string | undefined;
+  // For a selected place whose position looks copied from Google Maps:
+  // a line from where AllThePlaces put it to where it is, or may be.
+  correction?: CameraCorrection | undefined;
+}
+
+// The correction's line, and a ring at whichever end the map doesn't
+// draw already: the published spot of a moved place, or the guessed spot
+// of an unmatched one.
+function correctionFeatures(correction: CameraCorrection | undefined, relation: string | undefined) {
+  if (!correction || relation === undefined) return [];
+  const { kind, published, corrected } = correction;
+  const properties = { relation, kind };
+  return [
+    {
+      type: 'Feature' as const,
+      properties,
+      geometry: { type: 'LineString' as const, coordinates: [published, corrected] },
+    },
+    {
+      type: 'Feature' as const,
+      properties,
+      geometry: { type: 'Point' as const, coordinates: kind === 'moved' ? published : corrected },
+    },
+  ];
 }
 
 function relationColor(relation: MapColors['relation']): ExpressionSpecification {
@@ -237,6 +263,10 @@ export function conflationOverlay(options: ConflationOptions): Overlay {
   const sources: Record<string, SourceSpecification> = {
     [SOURCE_ID]: { type: 'vector', url: options.sourceUrl },
     [SELECTION_SOURCE_ID]: { type: 'geojson', data: { type: 'FeatureCollection', features: point } },
+    [CORRECTION_SOURCE_ID]: {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: correctionFeatures(options.correction, relation) },
+    },
   };
   const mode: Mode = selection ? 'dimmed' : 'normal';
   const only = selectedFilter(options);
@@ -249,6 +279,29 @@ export function conflationOverlay(options: ConflationOptions): Overlay {
       ...layersFor(MATCHED_LAYER, options, colors, mode),
       ...SOURCE_LAYERS.filter((l) => l !== MATCHED_LAYER).flatMap((l) => layersFor(l, options, colors, mode)),
       ...(only ? SOURCE_LAYERS.flatMap((l) => layersFor(l, options, colors, 'selected', only)) : []),
+      // Some 165 m: from z12 on, it is long enough to see.
+      {
+        id: 'camera-correction-line',
+        type: 'line',
+        source: CORRECTION_SOURCE_ID,
+        minzoom: DETAIL_ZOOM - 1,
+        filter: isLine as FilterSpecification,
+        layout: { 'line-cap': 'round' },
+        paint: { 'line-color': relationColor(colors.relation), 'line-width': 2, 'line-dasharray': [0.5, 2] },
+      },
+      {
+        id: 'camera-correction-ring',
+        type: 'circle',
+        source: CORRECTION_SOURCE_ID,
+        minzoom: DETAIL_ZOOM - 1,
+        filter: isPoint as FilterSpecification,
+        paint: {
+          'circle-color': 'rgba(0, 0, 0, 0)',
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], DETAIL_ZOOM - 1, 4, 16, 7],
+          'circle-stroke-color': relationColor(colors.relation),
+          'circle-stroke-width': 2,
+        },
+      },
       {
         id: 'selected-position',
         type: 'circle',
