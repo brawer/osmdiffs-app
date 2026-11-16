@@ -766,6 +766,17 @@ button.legend-card__row:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* A country in a stats table that moves the map there. */
+.stats__zoom {
+  padding: 0;
+  border: none;
+  border-bottom: 1px dotted currentColor;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
 /* Filters above the spider list. */
 .spider-filters {
   display: flex;
@@ -875,6 +886,14 @@ button.legend-card__row:hover {
 
 .flag-chip--source {
   --cause: var(--rel-located-in);
+}
+
+/* Information, not a problem, such as a license that rules out OSM. */
+.flag-chip--info {
+  --cause: var(--rel-other);
+  border-style: dashed;
+  background: transparent;
+  color: var(--ink-soft);
 }
 
 .flag-list {

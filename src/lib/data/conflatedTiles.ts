@@ -119,45 +119,6 @@ export function decodeTile(data: ArrayBuffer | Uint8Array, x: number, y: number,
   return features;
 }
 
-export type Extent = [west: number, south: number, east: number, north: number];
-
-function eachPosition(geometry: Geometry, visit: (p: Position) => void) {
-  switch (geometry.type) {
-    case 'Point':
-      visit(geometry.coordinates);
-      break;
-    case 'MultiPoint':
-    case 'LineString':
-      geometry.coordinates.forEach(visit);
-      break;
-    case 'MultiLineString':
-    case 'Polygon':
-      geometry.coordinates.flat().forEach(visit);
-      break;
-    case 'MultiPolygon':
-      geometry.coordinates.flat(2).forEach(visit);
-      break;
-    case 'GeometryCollection':
-      geometry.geometries.forEach((g) => eachPosition(g, visit));
-      break;
-  }
-}
-
-// The bounding box of a spider's features among `features`, or null if
-// it has none there. Doesn't try to wrap around the antimeridian.
-export function spiderExtent(features: TileFeature[], spider: string): Extent | null {
-  let extent: Extent | null = null;
-  for (const f of features) {
-    if (f.properties.spider !== spider) continue;
-    eachPosition(f.geometry(), ([lng, lat]) => {
-      if (lng === undefined || lat === undefined) return;
-      if (!extent) extent = [lng, lat, lng, lat];
-      else extent = [Math.min(extent[0], lng), Math.min(extent[1], lat), Math.max(extent[2], lng), Math.max(extent[3], lat)];
-    });
-  }
-  return extent;
-}
-
 // The tile at `zoom` that contains a position.
 export function tileFor(lng: number, lat: number, zoom: number): [number, number] {
   const n = 2 ** zoom;
@@ -361,17 +322,6 @@ export class ConflatedTiles {
       if (this.decoded.size > 36) this.decoded.delete(this.decoded.keys().next().value!);
     }
     return tile;
-  }
-
-  // Roughly where a spider's features are, from the overview tiles: the
-  // z0 tile, and if that thinned the spider out entirely, the four z1
-  // tiles. A spider so small that tippecanoe dropped it from both isn't
-  // found; the caller then leaves the camera alone.
-  async spiderExtent(spider: string): Promise<Extent | null> {
-    const world = spiderExtent(await this.tile(0, 0, 0), spider);
-    if (world) return world;
-    const quarters = await Promise.all([0, 1].flatMap((x) => [0, 1].map((y) => this.tile(1, x, y))));
-    return spiderExtent(quarters.flat(), spider);
   }
 
   // Looks a selection up in the detail tiles around `near`: first the one

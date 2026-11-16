@@ -23,6 +23,7 @@ import {
   type OverviewFacts,
   type Properties,
 } from './lib/data/conflatedTiles.ts';
+import { bboxBounds, type Bbox } from './lib/data/bbox.ts';
 import { getResource, watchDatapackage, type DataPackage } from './lib/data/datapackage.ts';
 import { selectionToString, type Camera, type Route, type Selection } from './lib/route.ts';
 import { getRoute, navigate, useRoute } from './lib/useRoute.ts';
@@ -176,43 +177,35 @@ export default function App() {
     }
   }, [map, padLeft, padBottom]);
 
-  // On a spider page, show the spider's features: fit the map to where
-  // the overview tiles have them.
+  // Fits the map to a box from spider-stats.parquet: a spider's, or one
+  // of its brands in one country.
+  const zoomTo = useCallback(
+    (bbox: Bbox) => {
+      if (!map) return;
+      // Beyond the map's own padding: on a phone, the sheet is open at
+      // half height on a spider page.
+      const sheet = wide ? 0 : map.getContainer().clientHeight * 0.5 - PEEK_PX;
+      map.fitBounds(bboxBounds(bbox), {
+        maxZoom: 14,
+        padding: { top: APP_BAR_PX + 40, bottom: Math.max(40, sheet + 20), left: 40, right: 40 },
+      });
+    },
+    [map, wide],
+  );
+
+  // On a spider page, show the spider's features: fit the map to its box,
+  // once the statistics are there. A shared link with a camera keeps it.
+  const spiderBbox =
+    spider && stats.status === 'ready' ? stats.file.spiders.find((s) => s.spider === spider)?.bbox : undefined;
   const fittedSpider = useRef(
     initialRoute.view.kind === 'spider' && initialRoute.camera ? initialRoute.view.spider : undefined,
   );
   useEffect(() => {
     if (!spider) fittedSpider.current = undefined;
-    if (!map || !tiles || !spider || fittedSpider.current === spider) return;
+    if (!spider || !spiderBbox || !map || fittedSpider.current === spider) return;
     fittedSpider.current = spider;
-    let live = true;
-    tiles.spiderExtent(spider).then(
-      (extent) => {
-        if (!live || !extent) return;
-        const [w, s, e, n] = extent;
-        // Beyond the map's own padding: on a phone, the sheet is open at
-        // half height on a spider page.
-        const sheet = wide ? 0 : map.getContainer().clientHeight * 0.5 - PEEK_PX;
-        map.fitBounds(
-          [
-            [w, s],
-            [e, n],
-          ],
-          {
-            maxZoom: 14,
-            padding: { top: APP_BAR_PX + 40, bottom: Math.max(40, sheet + 20), left: 40, right: 40 },
-          },
-        );
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-      // Under StrictMode's double run, or a quick move to another spider,
-      // fit again next time.
-      if (fittedSpider.current === spider) fittedSpider.current = undefined;
-    };
-  }, [map, tiles, spider, wide]);
+    zoomTo(spiderBbox);
+  }, [map, spider, spiderBbox, zoomTo]);
 
   // Keep the selected place in sight. Following a shared link can put it
   // anywhere; on a phone, the opening sheet covers the lower half of the
@@ -326,7 +319,7 @@ export default function App() {
         ) : view.kind === 'map' ? (
           <LegendCard counts={tiles ? counts : undefined} hidden={hidden} onToggle={toggleRelation} />
         ) : (
-          <SpiderViews view={view} state={stats} conflatedUrl={conflatedUrl} />
+          <SpiderViews view={view} state={stats} conflatedUrl={conflatedUrl} onZoomTo={zoomTo} />
         )}
       </SidePanel>
 

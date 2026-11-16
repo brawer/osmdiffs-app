@@ -10,6 +10,7 @@ import { BarList, Compass, Histogram, StackedBar, type Bar } from '../../compone
 import { fmt } from '../../components/charts/format.ts';
 import Link from '../../components/Link.tsx';
 import { toView } from '../../components/linkTo.ts';
+import type { Bbox } from '../../lib/data/bbox.ts';
 import type { BrandCount, SpiderStats } from '../../lib/data/spiderStats.ts';
 import { describeOffset, flagsFor, shiftedBrands } from '../../lib/flags.ts';
 import { FlagList } from './FlagChips.tsx';
@@ -19,6 +20,8 @@ interface SpiderPageProps {
   bins: number[];
   // conflated.parquet's URL, for the DuckDB snippet.
   conflatedUrl: string | undefined;
+  // Moves the map to a brand's features in one country.
+  onZoomTo: (bbox: Bbox) => void;
 }
 
 const SAME = 'var(--rel-same)';
@@ -94,7 +97,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-export default function SpiderPage({ stats: s, bins, conflatedUrl }: SpiderPageProps) {
+// A country cell that moves the map there, where the file has a box.
+function Country({ brand, onZoomTo }: { brand: BrandCount; onZoomTo: (bbox: Bbox) => void }) {
+  const { country, bbox } = brand;
+  if (!bbox) return <>{country ?? '–'}</>;
+  return (
+    <button
+      type="button"
+      className="stats__zoom"
+      title={`Show on the map${country ? ` in ${country}` : ''}`}
+      onClick={() => onZoomTo(bbox)}
+    >
+      {country ?? '–'}
+    </button>
+  );
+}
+
+export default function SpiderPage({ stats: s, bins, conflatedUrl, onZoomTo }: SpiderPageProps) {
   const flags = flagsFor(s, bins);
   const shifted = new Set(shiftedBrands(s));
   const withOffset = s.brands.filter((b) => b.offsetEastM !== null && b.offsetNorthM !== null);
@@ -164,7 +183,9 @@ export default function SpiderPage({ stats: s, bins, conflatedUrl }: SpiderPageP
             <tbody>
               {withOffset.map((b, i) => (
                 <tr key={i} className={shifted.has(b) ? 'stats-table__row--flagged' : undefined}>
-                  <td>{b.country ?? '–'}</td>
+                  <td>
+                    <Country brand={b} onZoomTo={onZoomTo} />
+                  </td>
                   <td>{brandLabel(b)}</td>
                   <td className="num">{fmt(b.same)}</td>
                   <td>{offsetText(b.offsetEastM, b.offsetNorthM)}</td>
@@ -230,7 +251,9 @@ export default function SpiderPage({ stats: s, bins, conflatedUrl }: SpiderPageP
                       brandLabel(b)
                     )}
                   </td>
-                  <td>{b.country ?? '–'}</td>
+                  <td>
+                    <Country brand={b} onZoomTo={onZoomTo} />
+                  </td>
                   <td className="num">{fmt(b.atpFeatures)}</td>
                   <td className="num">{b.osmFeatures === null ? '–' : fmt(b.osmFeatures)}</td>
                   <td className="num">{fmt(b.same + b.locatedIn)}</td>

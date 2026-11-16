@@ -8,7 +8,7 @@ export function FlagChips({ flags }: { flags: RaisedFlag[] }) {
   return (
     <span className="flag-chips">
       {flags.map(({ flag, reason }) => (
-        <span key={flag.id} className={`flag-chip flag-chip--${flag.likelyCause}`} title={reason}>
+        <span key={flag.id} className={`flag-chip flag-chip--${flag.info ? 'info' : flag.likelyCause}`} title={reason}>
           {flag.label}
         </span>
       ))}
@@ -23,7 +23,7 @@ export function FlagList({ flags }: { flags: RaisedFlag[] }) {
     <ul className="flag-list">
       {flags.map(({ flag, reason }) => (
         <li key={flag.id} className="flag-list__item">
-          <span className={`flag-chip flag-chip--${flag.likelyCause}`}>{flag.label}</span>
+          <span className={`flag-chip flag-chip--${flag.info ? 'info' : flag.likelyCause}`}>{flag.label}</span>
           <span className="flag-list__cause">{CAUSE_LABELS[flag.likelyCause]}</span>
           <span className="flag-list__reason">{reason}</span>
         </li>
