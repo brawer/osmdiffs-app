@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0](https://github.com/brawer/osmdiffs-app/compare/v1.3.0...v1.4.0) (2026-11-16)
+
+
+### 🆕 Features
+
+* flag spiders whose positions were copied from Google Maps ([#27](https://github.com/brawer/osmdiffs-app/issues/27)) ([ad6bf32](https://github.com/brawer/osmdiffs-app/commit/ad6bf32b6b8b696b2e53f3fa5993bafb0ff0e907))
+* flag stacking within a kind, and skip chains open around the clock ([#31](https://github.com/brawer/osmdiffs-app/issues/31)) ([62a6cdf](https://github.com/brawer/osmdiffs-app/commit/62a6cdf8b86d01a08147e5ecd190dd3f975192ec))
+* retune the spider flags on the first planet run ([#25](https://github.com/brawer/osmdiffs-app/issues/25)) ([fc0c6de](https://github.com/brawer/osmdiffs-app/commit/fc0c6de716f12787327b9fb216c4ac1693305470))
+* show deletion candidates on the conflation map ([#32](https://github.com/brawer/osmdiffs-app/issues/32)) ([9059401](https://github.com/brawer/osmdiffs-app/commit/90594016c9663db878d75a398612cfa61136c5d5))
+
 ## [1.3.0](https://github.com/brawer/osmdiffs-app/compare/v1.2.0...v1.3.0) (2026-11-15)
 
 
