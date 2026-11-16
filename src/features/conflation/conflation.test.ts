@@ -77,6 +77,36 @@ describe('conflationOverlay', () => {
     expect(ids.indexOf('selected-matched-overview-dot')).toBeGreaterThan(ids.indexOf('unmatched-overview-dot'));
   });
 
+  it('draws deletion candidates in their own colour, and not on a spider\'s map', () => {
+    const colors = fallbackMapColors();
+    const layer = (options: ConflationOptions, id: string) =>
+      conflationOverlay(options)
+        .layers(colors)
+        .find((l) => l.id === id) as { filter: unknown; paint: Record<string, unknown> };
+    // A ring at every zoom, unlike the filled dots of AllThePlaces places.
+    const dot = layer(BASE, 'deletion_candidate-overview-dot');
+    expect(dot.paint['circle-color']).toBe(colors.halo);
+    expect(JSON.stringify(dot.paint['circle-stroke-color'])).toContain(
+      `"deletion_candidate","${colors.relation.deletion_candidate}"`,
+    );
+    expect(colors.relation.deletion_candidate).not.toBe(colors.relation.missing_in_osm);
+    // From z13 on, a node is a ring, as for any OpenStreetMap shape.
+    expect(layer(BASE, 'deletion_candidate-osm-node').paint['circle-stroke-color']).toBeDefined();
+    // A spider filter needs a `spider`, which deletion candidates lack.
+    expect(JSON.stringify(layer({ ...BASE, spider: 'denner_ch' }, 'deletion_candidate-overview-dot').filter)).toContain(
+      '["get","spider"]',
+    );
+  });
+
+  it('picks out a selected deletion candidate by its OpenStreetMap ID', () => {
+    const options = { ...BASE, selection: { kind: 'osm', type: 'node', id: 13426824598 } } as const;
+    const selected = conflationOverlay(options)
+      .layers(fallbackMapColors())
+      .find((l) => l.id === 'selected-deletion_candidate-overview-dot') as { filter: unknown };
+    expect(JSON.stringify(selected.filter)).toContain('"deletion_candidate"');
+    expect(JSON.stringify(selected.filter)).toContain('13426824598');
+  });
+
   it('draws nothing extra when nothing is selected', () => {
     const ids = conflationOverlay(BASE).layers(fallbackMapColors()).map((l) => l.id);
     expect(ids.some((id) => id.startsWith('selected-') && id !== 'selected-position')).toBe(false);

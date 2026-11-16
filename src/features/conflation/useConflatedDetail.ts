@@ -12,7 +12,7 @@ import type { Position } from 'geojson';
 import {
   ConflatedTiles,
   DETAIL_ZOOM,
-  MATCHED_LAYER,
+  OSM_KEYED_LAYERS,
   SOURCE_LAYERS,
   findRecords,
   isAtSelection,
@@ -96,7 +96,7 @@ async function findOnMap(map: maplibregl.Map, selection: Selection & { kind: 'os
 // At z13 and up the map's own tiles carry full tags: no fetch needed.
 function featuresOnMap(map: maplibregl.Map, selection: Selection): TileFeature[] {
   if (map.getZoom() < DETAIL_ZOOM || !map.getSource(SOURCE_ID)) return [];
-  const layers = selection.kind === 'osm' ? [MATCHED_LAYER] : SOURCE_LAYERS;
+  const layers = selection.kind === 'osm' ? OSM_KEYED_LAYERS : SOURCE_LAYERS;
   const options = selection.kind === 'atp' ? { filter: ['==', ['get', 'spider'], selection.spider] } : {};
   return layers.flatMap((sourceLayer) =>
     map

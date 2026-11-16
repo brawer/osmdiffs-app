@@ -7,10 +7,14 @@
 
 import type * as maplibregl from 'maplibre-gl';
 import { useEffect, useState } from 'react';
-import { DETAIL_ZOOM, SOURCE_LAYERS } from '../../lib/data/conflatedTiles.ts';
+import { DELETION_LAYER, DETAIL_ZOOM, SOURCE_LAYERS } from '../../lib/data/conflatedTiles.ts';
 
 const OVERVIEW_LAYERS = SOURCE_LAYERS.flatMap((l) => [`${l}-overview-dot`, `${l}-overview-fill`, `${l}-overview-line`]);
-const DETAIL_LAYERS = SOURCE_LAYERS.map((l) => `${l}-atp`);
+// In the detail, a row is counted by its AllThePlaces point, or for a
+// deletion candidate, which has none, by its OpenStreetMap shape.
+const DETAIL_LAYERS = SOURCE_LAYERS.flatMap((l) =>
+  l === DELETION_LAYER ? [`${l}-osm-fill`, `${l}-osm-line`, `${l}-osm-node`] : [`${l}-atp`],
+);
 
 // One key per row: a feature near a tile edge shows up in each tile that
 // buffers it, and a polygon as both fill and outline.
