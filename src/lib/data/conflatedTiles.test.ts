@@ -14,7 +14,6 @@ import {
   isAtSelection,
   overviewFacts,
   selectionFor,
-  spiderExtent,
   tileFor,
   type Properties,
 } from './conflatedTiles.ts';
@@ -218,21 +217,6 @@ describe('selectionFor', () => {
   it('selects anything else, including a located_in row, by spider and position', () => {
     const facts = overviewFacts({ relation: 'located_in', spider: 's', 'osm:type': 'way', 'osm:id': 5 });
     expect(selectionFor(facts, [8, 47])).toEqual({ kind: 'atp', spider: 's', lng: 8, lat: 47 });
-  });
-});
-
-describe('spiderExtent', () => {
-  it('bounds the features of one spider', () => {
-    const [w, s, e, n] = spiderExtent(features, 'coop_pronto_ch')!;
-    expect(w).toBeCloseTo(8.539, 3);
-    expect(s).toBeCloseTo(47.376, 3);
-    expect(e).toBeCloseTo(8.545, 3);
-    expect(n).toBeCloseTo(47.379, 3);
-  });
-
-  it('includes shapes, and gives null for an unknown spider', () => {
-    expect(spiderExtent(features, 'sushi_daily')![2]).toBeCloseTo(8.5415, 3);
-    expect(spiderExtent(features, 'nobody')).toBeNull();
   });
 });
 

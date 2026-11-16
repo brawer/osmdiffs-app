@@ -46,7 +46,7 @@ export default function SpiderList({ file }: { file: SpiderStatsFile }) {
   const rows = useMemo(() => file.spiders.map((s) => spiderRow(s, file.distanceBinsM)), [file]);
   const countries = useMemo(() => allCountries(rows), [rows]);
   const shown = useMemo(() => sortRows(filterRows(rows, filter), sort, reverse), [rows, filter, sort, reverse]);
-  const flagged = rows.filter((r) => r.flags.length > 0).length;
+  const flagged = rows.filter((r) => r.problems > 0).length;
 
   const update = (change: Partial<Filter>) => {
     setFilter({ ...filter, ...change });

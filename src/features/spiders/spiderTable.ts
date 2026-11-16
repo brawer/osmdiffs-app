@@ -15,12 +15,15 @@ export interface SpiderRow {
   // (same + located_in) / rows, or null without rows.
   matchRate: number | null;
   countries: string[];
+  // Flags that point to a problem, not just information.
+  problems: number;
   // For the default order: flagged spiders first, larger ones higher.
   weight: number;
 }
 
 export function spiderRow(stats: SpiderStats, bins: number[]): SpiderRow {
   const flags = flagsFor(stats, bins);
+  const problems = flags.filter((f) => !f.flag.info).length;
   const features = stats.dumpFeatures ?? stats.atpFeatures ?? 0;
   const countries = [...new Set(stats.brands.map((b) => b.country).filter((c): c is string => c !== null))].sort();
   return {
@@ -29,8 +32,9 @@ export function spiderRow(stats: SpiderStats, bins: number[]): SpiderRow {
     features,
     matchRate: stats.rows > 0 ? (stats.same + stats.locatedIn) / stats.rows : null,
     countries,
+    problems,
     // log2(2 + n) keeps a broken spider without features above zero.
-    weight: flags.length * Math.log2(2 + Math.max(features, stats.atpFeatures ?? 0)),
+    weight: problems * Math.log2(2 + Math.max(features, stats.atpFeatures ?? 0)),
   };
 }
 
@@ -60,7 +64,7 @@ const COMPARE: Record<SortKey, (a: SpiderRow, b: SpiderRow) => number> = {
   features: (a, b) => b.features - a.features || byName(a, b),
   // Spiders without rows last.
   matchRate: (a, b) => (a.matchRate ?? 2) - (b.matchRate ?? 2) || b.features - a.features,
-  flags: (a, b) => b.flags.length - a.flags.length || b.features - a.features,
+  flags: (a, b) => b.problems - a.problems || b.flags.length - a.flags.length || b.features - a.features,
 };
 
 // Sorts by `key`; `reverse` flips the key's natural direction (largest

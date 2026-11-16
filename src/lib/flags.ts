@@ -4,8 +4,12 @@
 // Flags: signs that conflation goes wrong for a spider, and whose fault
 // it likely is. They are computed here in the browser from the counts in
 // spider-stats.parquet, not in the pipeline, so that the thresholds can be
-// tuned without waiting for a weekly run. The thresholds are starting
-// points from osmdiffs-app#2, to be tuned on real weeks.
+// tuned without waiting for a weekly run.
+//
+// The thresholds were tuned on the 2026-11-09 planet run (5,780 spiders,
+// 4,103 with rows). The first ones, from osmdiffs-app#2, flagged 3,694
+// spiders; most limits sat near the median. Now each flag asks for enough
+// features to mean something, and fires on a few percent of spiders.
 
 import type { BrandCount, SpiderStats } from './data/spiderStats.ts';
 
@@ -19,6 +23,9 @@ export interface Flag {
   test: (s: SpiderStats, bins: number[]) => boolean;
   // A one-line reason, with the numbers.
   explain: (s: SpiderStats, bins: number[]) => string;
+  // Worth knowing, but not a problem to fix: not counted as a flag in
+  // the spider list's order.
+  info?: boolean;
 }
 
 const percent = (part: number, whole: number) => `${Math.round((100 * part) / whole)}%`;
@@ -57,11 +64,26 @@ export function shiftedBrands(s: SpiderStats): BrandCount[] {
 
 const LOW_COVERAGE_MIN = 20;
 
+// Brand and country rows where OpenStreetMap has more than twice as many
+// features as the spider. Only for the spider's own brands: at least 20
+// of its features, and at least half of its rows. A spider that lists a
+// brand in passing, such as a fuel card network listing Shell stations,
+// isn't expected to have them all.
 export function lowCoverageBrands(s: SpiderStats): BrandCount[] {
   return s.brands.filter(
-    (b) => b.wikidataId !== null && b.osmFeatures !== null && b.osmFeatures >= LOW_COVERAGE_MIN && b.osmFeatures > 2 * b.atpFeatures,
+    (b) =>
+      b.wikidataId !== null &&
+      b.osmFeatures !== null &&
+      b.atpFeatures >= LOW_COVERAGE_MIN &&
+      2 * b.atpFeatures >= s.rows &&
+      b.osmFeatures > 2 * b.atpFeatures,
   );
 }
+
+// Minimum sizes, below which a share says little.
+const MIN_MATCHES = 20;
+const MIN_ROWS = 20;
+const MIN_MISSING = 50;
 
 export const FLAGS: Flag[] = [
   {
@@ -97,7 +119,7 @@ export const FLAGS: Flag[] = [
     likelyCause: 'spider',
     test: (s, bins) => {
       const { part, total } = shareAtLeast(s.distanceM, bins, 100);
-      return total > 0 && part / total > 0.2;
+      return total >= MIN_MATCHES && part / total > 1 / 3;
     },
     explain: (s, bins) => {
       const { part, total } = shareAtLeast(s.distanceM, bins, 100);
@@ -108,21 +130,25 @@ export const FLAGS: Flag[] = [
     id: 'stacked',
     label: 'Stacked',
     likelyCause: 'spider',
-    test: (s) => s.rows > 0 && s.sharedPositions / s.rows > 0.1,
+    // Car dealers and banks often list sales, service and an ATM at one
+    // spot, which is right; 10% caught too many of them.
+    test: (s) => s.rows >= MIN_ROWS && s.sharedPositions / s.rows > 0.25,
     explain: (s) => `${percent(s.sharedPositions, s.rows)} of features share their position with another`,
   },
   {
     id: 'same-hours',
     label: 'Same hours everywhere',
     likelyCause: 'spider',
-    test: (s) => (s.openingHoursTopShare ?? 0) > 0.9 && s.rows >= 50,
+    // 24/7 convenience stores and fuel stations really do share their
+    // hours, so only nearly all alike counts.
+    test: (s) => (s.openingHoursTopShare ?? 0) > 0.99 && s.rows >= 50,
     explain: (s) => `${Math.round((s.openingHoursTopShare ?? 0) * 100)}% of features have the same opening hours`,
   },
   {
     id: 'chance',
     label: 'Chance matches',
     likelyCause: 'matcher',
-    test: (s) => s.chanceSampled >= 20 && s.chanceMatched / s.chanceSampled > 0.05,
+    test: (s) => s.chanceSampled >= 20 && s.chanceMatched / s.chanceSampled > 0.1,
     explain: (s) =>
       `${s.chanceMatched} of ${s.chanceSampled} features moved 2 km away still matched (${percent(s.chanceMatched, s.chanceSampled)})`,
   },
@@ -132,7 +158,7 @@ export const FLAGS: Flag[] = [
     likelyCause: 'matcher',
     test: (s, bins) => {
       const near = sum(s.rejectedDistanceM.slice(0, bins.indexOf(10) + 1));
-      return s.missingInOsm > 0 && near / s.missingInOsm > 0.2;
+      return s.missingInOsm >= MIN_MISSING && near / s.missingInOsm > 0.4;
     },
     explain: (s, bins) => {
       const near = sum(s.rejectedDistanceM.slice(0, bins.indexOf(10) + 1));
@@ -143,7 +169,7 @@ export const FLAGS: Flag[] = [
     id: 'shared-osm',
     label: 'Shared OSM features',
     likelyCause: 'source',
-    test: (s) => s.same > 0 && s.sharedOsmFeatures / s.same > 0.1,
+    test: (s) => s.same >= MIN_MATCHES && s.sharedOsmFeatures / s.same > 0.2,
     explain: (s) => `${percent(s.sharedOsmFeatures, s.same)} of matches share their OpenStreetMap feature`,
   },
   {
@@ -162,6 +188,7 @@ export const FLAGS: Flag[] = [
     likelyCause: 'license',
     test: (s) => (s.dumpFeatures ?? 0) > 0 && s.notForOsm === s.dumpFeatures,
     explain: (s) => `All ${s.dumpFeatures} features have a license that doesn't allow OpenStreetMap`,
+    info: true,
   },
 ];
 

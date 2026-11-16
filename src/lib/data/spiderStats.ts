@@ -11,6 +11,7 @@
 // groups with range requests can come later without touching callers.
 
 import { decompress as zstd } from 'fzstd';
+import type { Bbox } from './bbox.ts';
 import { asyncBufferFromUrl, parquetMetadataAsync, parquetReadObjects, type FileMetaData } from 'hyparquet';
 
 export interface RuleCount {
@@ -38,6 +39,7 @@ export interface BrandCount {
   deletionCandidates: number | null;
   offsetEastM: number | null;
   offsetNorthM: number | null;
+  bbox: Bbox | null;
 }
 
 export interface SpiderStats {
@@ -59,6 +61,8 @@ export interface SpiderStats {
   sharedPositions: number;
   offsetEastM: number | null;
   offsetNorthM: number | null;
+  // Null for a spider without rows, and in files from before v0.8.17.
+  bbox: Bbox | null;
   // Histogram over distanceBinsM: one more bin than bounds.
   distanceM: number[];
   missingNoCandidate: number;
@@ -86,6 +90,8 @@ export interface SpiderStatsFile {
 const DEFAULT_DISTANCE_BINS_M = [1, 10, 25, 50, 100, 250, 1000];
 
 const COMPRESSORS = { ZSTD: (input: Uint8Array) => zstd(input) };
+
+export type { Bbox };
 
 type Raw = Record<string, unknown>;
 
@@ -123,6 +129,13 @@ function stringMap(value: unknown): Record<string, string> | null {
   return out;
 }
 
+function bbox(value: unknown): Bbox | null {
+  if (!value || typeof value !== 'object') return null;
+  const { xmin, ymin, xmax, ymax } = value as Raw;
+  const box = { xmin: num(xmin), ymin: num(ymin), xmax: num(xmax), ymax: num(ymax) };
+  return box.xmin === null || box.ymin === null || box.xmax === null || box.ymax === null ? null : (box as Bbox);
+}
+
 export function toSpiderStats(r: Raw): SpiderStats {
   return {
     spider: String(r.spider),
@@ -143,6 +156,7 @@ export function toSpiderStats(r: Raw): SpiderStats {
     sharedPositions: count(r.shared_positions),
     offsetEastM: num(r.offset_east_m),
     offsetNorthM: num(r.offset_north_m),
+    bbox: bbox(r.bbox),
     distanceM: Array.isArray(r.distance_m) ? r.distance_m.map(count) : [],
     missingNoCandidate: count(r.missing_no_candidate),
     missingRejected: count(r.missing_rejected),
@@ -171,6 +185,7 @@ export function toSpiderStats(r: Raw): SpiderStats {
       deletionCandidates: num(x.deletion_candidates),
       offsetEastM: num(x.offset_east_m),
       offsetNorthM: num(x.offset_north_m),
+      bbox: bbox(x.bbox),
     })),
   };
 }

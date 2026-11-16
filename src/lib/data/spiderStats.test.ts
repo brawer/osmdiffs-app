@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { FileMetaData } from 'hyparquet';
+import { bboxBounds } from './bbox.ts';
 import { distanceBins, readSpiderStats, toSpiderStats } from './spiderStats.ts';
 
 // Written by `osmdiffs conflate` from the pipeline's own test data.
@@ -75,6 +76,32 @@ describe('toSpiderStats', () => {
     expect(s.distanceM).toEqual([]);
     expect(s.datasetAttributes).toEqual({ license: 'CC0' });
     expect(s.brands[0]).toMatchObject({ country: 'DE', wikidataId: null, atpFeatures: 2, osmFeatures: null });
+    // Files from before v0.8.17 have no bounding boxes.
+    expect(s.bbox).toBeNull();
+    expect(s.brands[0]?.bbox).toBeNull();
+  });
+
+  it('reads bounding boxes', () => {
+    const box = { xmin: 5.9, ymin: 45.8, xmax: 10.5, ymax: 47.8 };
+    const s = toSpiderStats({ spider: 'x', bbox: box, brands: [{ country: 'CH', bbox: box }] });
+    expect(s.bbox).toEqual(box);
+    expect(s.brands[0]?.bbox).toEqual(box);
+  });
+});
+
+describe('bboxBounds', () => {
+  it('gives west-south and east-north corners', () => {
+    expect(bboxBounds({ xmin: 5.9, ymin: 45.8, xmax: 10.5, ymax: 47.8 })).toEqual([
+      [5.9, 45.8],
+      [10.5, 47.8],
+    ]);
+  });
+
+  it('goes east across the antimeridian', () => {
+    expect(bboxBounds({ xmin: 177, ymin: -19, xmax: -179, ymax: -16 })).toEqual([
+      [177, -19],
+      [181, -16],
+    ]);
   });
 });
 

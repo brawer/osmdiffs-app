@@ -4,6 +4,7 @@
 // The panel content for the spider list, a spider page and a Wikidata
 // page, once the statistics are there.
 
+import type { Bbox } from '../../lib/data/bbox.ts';
 import type { View } from '../../lib/route.ts';
 import SpiderList from './SpiderList.tsx';
 import SpiderPage from './SpiderPage.tsx';
@@ -15,9 +16,10 @@ interface SpiderViewsProps {
   view: Exclude<View, { kind: 'map' }>;
   state: SpiderStatsState;
   conflatedUrl: string | undefined;
+  onZoomTo: (bbox: Bbox) => void;
 }
 
-export default function SpiderViews({ view, state, conflatedUrl }: SpiderViewsProps) {
+export default function SpiderViews({ view, state, conflatedUrl, onZoomTo }: SpiderViewsProps) {
   if (state.status !== 'ready') {
     return (
       <div className="stats">
@@ -40,7 +42,7 @@ export default function SpiderViews({ view, state, conflatedUrl }: SpiderViewsPr
           </div>
         );
       }
-      return <SpiderPage key={stats.spider} stats={stats} bins={file.distanceBinsM} conflatedUrl={conflatedUrl} />;
+      return <SpiderPage key={stats.spider} stats={stats} bins={file.distanceBinsM} conflatedUrl={conflatedUrl} onZoomTo={onZoomTo} />;
     }
     case 'wikidata':
       return <WikidataPage file={file} qid={view.qid} />;

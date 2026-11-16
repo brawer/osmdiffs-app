@@ -46,6 +46,7 @@ const rows = [
     BINS,
   ),
   spiderRow(toSpiderStats({ spider: 'broken', atp_features: 0, atp_errors: 4, dump_features: 0 }), BINS),
+  spiderRow(toSpiderStats({ spider: 'unlicensed', atp_features: 9000, dump_features: 9000, not_for_osm: 9000 }), BINS),
 ];
 
 const names = (rs: typeof rows) => rs.map((r) => r.stats.spider);
@@ -55,18 +56,21 @@ describe('spiderRow', () => {
     expect(rows[0]!.matchRate).toBe(0.8);
     expect(rows[2]!.countries).toEqual(['DE', 'FR']);
     expect(rows[3]!.matchRate).toBeNull();
+    // A license that rules out OpenStreetMap is information, not a problem.
+    expect(rows[4]!.flags.map((f) => f.flag.id)).toEqual(['no-license']);
+    expect(rows[4]!.problems).toBe(0);
   });
 });
 
 describe('sortRows', () => {
   it('puts flagged spiders first, larger ones higher', () => {
-    expect(names(sortRows(rows, 'default'))).toEqual(['large_stacked', 'small_stacked', 'broken', 'big_ok']);
+    expect(names(sortRows(rows, 'default'))).toEqual(['large_stacked', 'small_stacked', 'broken', 'unlicensed', 'big_ok']);
   });
 
   it('sorts by features, match rate and name', () => {
-    expect(names(sortRows(rows, 'features'))).toEqual(['big_ok', 'large_stacked', 'small_stacked', 'broken']);
-    expect(names(sortRows(rows, 'matchRate'))).toEqual(['small_stacked', 'big_ok', 'large_stacked', 'broken']);
-    expect(names(sortRows(rows, 'spider', true))).toEqual(['small_stacked', 'large_stacked', 'broken', 'big_ok']);
+    expect(names(sortRows(rows, 'features'))).toEqual(['unlicensed', 'big_ok', 'large_stacked', 'small_stacked', 'broken']);
+    expect(names(sortRows(rows, 'matchRate'))).toEqual(['small_stacked', 'big_ok', 'large_stacked', 'unlicensed', 'broken']);
+    expect(names(sortRows(rows, 'spider', true))).toEqual(['unlicensed', 'small_stacked', 'large_stacked', 'broken', 'big_ok']);
   });
 });
 
