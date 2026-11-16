@@ -4,8 +4,10 @@
 // The side panel's resting content, while nothing is selected: what each
 // colour means and how many such places are in view. Each row also
 // switches its places on or off, so that, say, missing places stand out
-// once the matched ones are hidden.
+// once the matched ones are hidden, or the places that may be gone can be
+// reviewed on their own.
 
+import type { CSSProperties } from 'react';
 import { KNOWN_RELATIONS, type KnownRelation } from '../../lib/data/conflatedTiles.ts';
 import { RELATION_LABELS, RELATION_TOKENS } from './relations.ts';
 
@@ -24,7 +26,7 @@ export default function LegendCard({ counts, hidden, onToggle }: LegendCardProps
     .reduce((sum, [, n]) => sum + n, 0);
   return (
     <section className="legend-card">
-      <h2 className="legend-card__title">AllThePlaces places, in view</h2>
+      <h2 className="legend-card__title">Places in view</h2>
       <ul className="legend-card__rows">
         {KNOWN_RELATIONS.map((relation) => {
           const shown = !hidden.has(relation);
@@ -37,8 +39,8 @@ export default function LegendCard({ counts, hidden, onToggle }: LegendCardProps
                 onClick={() => onToggle(relation)}
               >
                 <span
-                  className="legend-card__swatch"
-                  style={{ background: RELATION_TOKENS[relation] }}
+                  className={`legend-card__swatch ${relation === 'deletion_candidate' ? 'swatch--ring' : ''}`}
+                  style={{ '--swatch': RELATION_TOKENS[relation] } as CSSProperties}
                   aria-hidden="true"
                 />
                 <span className="legend-card__label">{RELATION_LABELS[relation]}</span>
@@ -52,7 +54,11 @@ export default function LegendCard({ counts, hidden, onToggle }: LegendCardProps
         {other > 0 && (
           <li>
             <span className="legend-card__row legend-card__row--static">
-              <span className="legend-card__swatch" style={{ background: RELATION_TOKENS.other }} aria-hidden="true" />
+              <span
+                className="legend-card__swatch"
+                style={{ '--swatch': RELATION_TOKENS.other } as CSSProperties}
+                aria-hidden="true"
+              />
               <span className="legend-card__label">Other</span>
               <span className="legend-card__count">{numberFormat.format(other)}</span>
             </span>

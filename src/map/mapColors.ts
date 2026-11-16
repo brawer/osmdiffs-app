@@ -59,6 +59,7 @@ const FALLBACK = {
   same: '#3d6f96',
   missing: '#8c3f5c',
   locatedIn: '#e2823f',
+  deletion: '#c1523a',
   other: '#6a6454',
 };
 
@@ -71,6 +72,7 @@ export function currentMapColors(): MapColors {
       same: get('--rel-same', FALLBACK.same),
       missing_in_osm: get('--rel-missing', FALLBACK.missing),
       located_in: get('--rel-located-in', FALLBACK.locatedIn),
+      deletion_candidate: get('--rel-deletion', FALLBACK.deletion),
       other: get('--rel-other', FALLBACK.other),
     },
     link: get('--ink-faint', FALLBACK.other),
@@ -85,6 +87,7 @@ export function fallbackMapColors(): MapColors {
       same: FALLBACK.same,
       missing_in_osm: FALLBACK.missing,
       located_in: FALLBACK.locatedIn,
+      deletion_candidate: FALLBACK.deletion,
       other: FALLBACK.other,
     },
     link: FALLBACK.other,

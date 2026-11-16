@@ -6,6 +6,14 @@
 // from z13 on, the AllThePlaces point, the OpenStreetMap shape as an outline,
 // and a faint line between the two. The detail tiles stop at z14 (z16
 // before brawer/osmdiffs#956), and MapLibre overzooms them beyond that.
+//
+// A deletion candidate has only an OpenStreetMap side, so from z13 on it
+// is just that shape: an outline, or a ring for a node, in its own colour
+// and with no AllThePlaces dot. Below z13 its dot is a ring as well, so it
+// stands apart from the filled dots of AllThePlaces places, and is drawn
+// on top of them: there are far fewer of them, and the ring lets what is
+// underneath show through. It has no spider either, so a map
+// filtered to one spider leaves it out.
 
 import type {
   ExpressionSpecification,
@@ -14,6 +22,7 @@ import type {
   SourceSpecification,
 } from 'maplibre-gl';
 import {
+  DELETION_LAYER,
   DETAIL_ZOOM,
   KNOWN_RELATIONS,
   MATCHED_LAYER,
@@ -84,6 +93,8 @@ const isLine: ExpressionSpecification = ['match', ['geometry-type'], ['LineStrin
 const isPolygon: ExpressionSpecification = ['match', ['geometry-type'], ['Polygon', 'MultiPolygon'], true, false];
 const isOsmShape: ExpressionSpecification = ['match', ['get', 'part'], ['osm', 'host'], true, false];
 
+// A spider filter also hides every deletion candidate, which has no
+// spider: the overview carries no tags to tell its brand by.
 function visible(hidden: ReadonlySet<KnownRelation>, spider: string | undefined): ExpressionSpecification {
   const relation: ExpressionSpecification = ['!', ['in', ['get', 'relation'], ['literal', [...hidden]]]];
   return spider === undefined ? relation : ['all', relation, ['==', ['get', 'spider'], spider]];
@@ -127,6 +138,7 @@ function layersFor(
   const all = (...conditions: ExpressionSpecification[]): FilterSpecification =>
     ['all', show, ...(only ? [only] : []), ...conditions] as FilterSpecification;
   const big = mode === 'selected';
+  const ring = sourceLayer === DELETION_LAYER;
   return [
     // Overview, z0–12.
     {
@@ -151,12 +163,19 @@ function layersFor(
       type: 'circle',
       maxzoom: DETAIL_ZOOM,
       filter: all(isPoint),
-      paint: {
-        'circle-color': color,
-        'circle-radius': overviewRadius(big ? 3 : 0),
-        'circle-stroke-color': colors.halo,
-        'circle-stroke-width': big ? 2 : 0.6,
-      },
+      paint: ring
+        ? {
+            'circle-color': colors.halo,
+            'circle-radius': overviewRadius(big ? 3 : 0.4),
+            'circle-stroke-color': color,
+            'circle-stroke-width': big ? 2.5 : 1.4,
+          }
+        : {
+            'circle-color': color,
+            'circle-radius': overviewRadius(big ? 3 : 0),
+            'circle-stroke-color': colors.halo,
+            'circle-stroke-width': big ? 2 : 0.6,
+          },
     },
     // Detail, from z13 on: the OpenStreetMap side first, so the AllThePlaces
     // point lands on top of it.
@@ -217,8 +236,8 @@ function layersFor(
 }
 
 // Which tile features belong to the selected rows, if the tiles can tell.
-// A matched OpenStreetMap object is known by its ID at every zoom (only
-// on `same` rows: a located_in row carries its host's ID). In the detail
+// A matched OpenStreetMap object or a deletion candidate is known by its
+// ID at every zoom (not a located_in row, which carries its host's ID). In the detail
 // tiles, though, only the OSM shape and link carry that ID; every part
 // of a row carries its fid, known once the rows are looked up. Below the
 // detail tiles, an AllThePlaces place is drawn from its position instead.
@@ -230,7 +249,7 @@ function selectedFilter(options: ConflationOptions): ExpressionSpecification | u
   if (selection?.kind === 'osm') {
     const byOsm: ExpressionSpecification = [
       'all',
-      ['==', ['get', 'relation'], 'same'],
+      ['in', ['get', 'relation'], ['literal', ['same', 'deletion_candidate']]],
       ['==', ['get', 'osm:type'], selection.type],
       ['==', ['get', 'osm:id'], selection.id],
     ];
@@ -275,7 +294,8 @@ export function conflationOverlay(options: ConflationOptions): Overlay {
     interactiveLayerIds: INTERACTIVE_LAYER_IDS,
     layers: (colors) => [
       // Matched rows at the bottom and unmatched ones on top, since places
-      // missing from OpenStreetMap are what a mapper looks for.
+      // missing from OpenStreetMap are what a mapper looks for; deletion
+      // candidates, drawn as rings, above both.
       ...layersFor(MATCHED_LAYER, options, colors, mode),
       ...SOURCE_LAYERS.filter((l) => l !== MATCHED_LAYER).flatMap((l) => layersFor(l, options, colors, mode)),
       ...(only ? SOURCE_LAYERS.flatMap((l) => layersFor(l, options, colors, 'selected', only)) : []),

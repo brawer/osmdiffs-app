@@ -12,6 +12,7 @@ import {
   distanceMeters,
   findRecords,
   isAtSelection,
+  isComplete,
   overviewFacts,
   selectionFor,
   tileFor,
@@ -129,6 +130,32 @@ const tile = encode({
 
 const features = decodeTile(tile, X, Y, Z);
 
+const DENNER: [number, number] = [8.5395, 47.3772];
+
+const withCandidate = decodeTile(
+  encode({
+    deletion_candidate: [
+      {
+        point: DENNER,
+        properties: {
+          fid: 12,
+          part: 'osm',
+          relation: 'deletion_candidate',
+          rule: 'wikidata',
+          local_share: 0.5,
+          'osm:type': 'node',
+          'osm:id': 13426824598,
+          'osm:name': 'Denner',
+          'osm:brand:wikidata': 'Q379911',
+        },
+      },
+    ],
+  }),
+  X,
+  Y,
+  Z,
+);
+
 describe('decodeTile and findRecords', () => {
   it('reassembles a matched row from its three parts', () => {
     const [record, ...rest] = findRecords(features, { kind: 'osm', type: 'node', id: 4424939151 });
@@ -204,6 +231,22 @@ describe('decodeTile and findRecords', () => {
     expect(findRecords(features, { kind: 'atp', spider: 'nobody', lng: 8.54, lat: 47.37 })).toEqual([]);
   });
 
+  it('reads a deletion candidate, which has only an OpenStreetMap side', () => {
+    const [record, ...rest] = findRecords(withCandidate, { kind: 'osm', type: 'node', id: 13426824598 });
+    expect(rest).toEqual([]);
+    expect(record).toEqual({
+      fid: 12,
+      relation: 'deletion_candidate',
+      spider: '',
+      atpTags: {},
+      osmTags: { name: 'Denner', 'brand:wikidata': 'Q379911' },
+      osm: { type: 'node', id: 13426824598 },
+      rule: 'wikidata',
+      localShare: 0.5,
+    });
+    expect(isComplete(record!)).toBe(true);
+  });
+
   it('counts a feature repeated in a neighbouring tile once', () => {
     const twice = [...features, ...features];
     expect(findRecords(twice, { kind: 'osm', type: 'node', id: 4424939151 })).toHaveLength(1);
@@ -239,6 +282,18 @@ describe('selectionFor', () => {
   it('selects a matched row by its OpenStreetMap object', () => {
     const facts = overviewFacts({ relation: 'same', spider: 's', 'osm:type': 'way', 'osm:id': 5, importance: 0.5 });
     expect(selectionFor(facts, [8, 47])).toEqual({ kind: 'osm', type: 'way', id: 5 });
+  });
+
+  it('selects a deletion candidate by its OpenStreetMap object, and keeps its rule', () => {
+    const facts = overviewFacts({
+      relation: 'deletion_candidate',
+      rule: 'name',
+      'osm:type': 'node',
+      'osm:id': 7,
+      importance: 0.2,
+    });
+    expect(facts.rule).toBe('name');
+    expect(selectionFor(facts, [8, 47])).toEqual({ kind: 'osm', type: 'node', id: 7 });
   });
 
   it('selects anything else, including a located_in row, by spider and position', () => {

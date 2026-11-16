@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Sascha Brawer <sascha@brawer.ch>
 // SPDX-License-Identifier: MIT
+// @vitest-environment jsdom
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -51,5 +52,41 @@ describe('FeatureDetail', () => {
 
   it('says nothing of it for a position as published', () => {
     expect(render(record)).not.toContain('Moved');
+  });
+
+  it('says why a deletion candidate was flagged, and shows its OpenStreetMap tags', () => {
+    const candidate: ConflatedRecord = {
+      relation: 'deletion_candidate',
+      spider: '',
+      atpTags: {},
+      osmTags: { name: 'Denner', brand: 'Denner', 'brand:wikidata': 'Q379911', shop: 'supermarket' },
+      osm: { type: 'node', id: 13426824598 },
+      rule: 'wikidata',
+      localShare: 0.5,
+    };
+    const html = render(candidate);
+    expect(html).toContain('May be gone');
+    expect(html).toContain('AllThePlaces has the brand <a href="/wikidata/Q379911">Denner</a> (by Wikidata ID)');
+    expect(html).toContain('AllThePlaces matched 50% of the OpenStreetMap places of this brand.');
+    expect(html).toContain('Nobody has checked this yet.');
+    expect(html).toContain('https://www.openstreetmap.org/node/13426824598');
+    expect(html).toContain('<th scope="col">OpenStreetMap</th>');
+    expect(html).toContain('<td>supermarket</td>');
+    expect(html).not.toContain('AllThePlaces</th>');
+    expect(html).not.toContain('Spider');
+  });
+
+  it('describes the Swiss transit rules', () => {
+    const stop: ConflatedRecord = {
+      relation: 'deletion_candidate',
+      spider: '',
+      atpTags: {},
+      osmTags: { name: 'Zug, Bahnhof', highway: 'bus_stop' },
+      osm: { type: 'node', id: 5 },
+      rule: 'swiss_transit_stop',
+    };
+    const html = render(stop);
+    expect(html).toContain('far from any stop in the national register');
+    expect(html).not.toContain('Nearby');
   });
 });

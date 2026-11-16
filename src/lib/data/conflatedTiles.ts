@@ -7,15 +7,24 @@
 // without notice, so its layer names, property names and join rules all
 // live here: a format change should touch this file and no other.
 //
-// In short: two layers, `matched` and `unmatched`. At z0–12 ("overview")
-// each row is one feature with only `spider`, `relation`, `importance`
-// and, where there is an OpenStreetMap side, `osm:type`/`osm:id`. At
-// z13 and deeper ("detail") a row splits into up to three features that
-// share a per-run `fid`: the AllThePlaces point (`part: "atp"`), the OSM
-// shape (`part: "osm"`, or `"host"` for located_in rows) and a connector
-// line (`part: "link"`), carrying the full `atp:*` and `osm:*` tags. The
-// detail goes up to the archive's max zoom, which is read from its header:
-// z14 from brawer/osmdiffs#956 on, z16 before.
+// In short: three layers of rows, `matched`, `unmatched` and
+// `deletion_candidate`. At z0–12 ("overview") each row is one feature
+// with only `spider`, `relation`, `importance` and, where there is an
+// OpenStreetMap side, `osm:type`/`osm:id`. At z13 and deeper ("detail")
+// a row splits into up to three features that share a per-run `fid`: the
+// AllThePlaces point (`part: "atp"`), the OSM shape (`part: "osm"`, or
+// `"host"` for located_in rows) and a connector line (`part: "link"`),
+// carrying the full `atp:*` and `osm:*` tags. The detail goes up to the
+// archive's max zoom, which is read from its header: z14 from
+// brawer/osmdiffs#956 on, z16 before.
+//
+// A deletion_candidate row (brawer/osmdiffs#952) is an OpenStreetMap
+// feature that nothing in AllThePlaces matched, but that may be gone. It
+// has no AllThePlaces side, and so no `spider`: at every zoom it is one
+// feature, the OSM shape (`part: "osm"` in the detail), with `rule`
+// saying why it was flagged and, in the detail, `local_share` for the
+// `wikidata` and `name` rules. It joins its detail feature on
+// `osm:type`/`osm:id`, like a matched row.
 
 import { VectorTile } from '@mapbox/vector-tile';
 import type { Geometry, Position } from 'geojson';
@@ -25,15 +34,18 @@ import type { OsmType, Selection } from '../route.ts';
 
 export const MATCHED_LAYER = 'matched';
 export const UNMATCHED_LAYER = 'unmatched';
-export const SOURCE_LAYERS = [MATCHED_LAYER, UNMATCHED_LAYER] as const;
+export const DELETION_LAYER = 'deletion_candidate';
+// In drawing order, bottom first.
+export const SOURCE_LAYERS = [MATCHED_LAYER, UNMATCHED_LAYER, DELETION_LAYER] as const;
+// The layers whose rows are found by their OpenStreetMap object.
+export const OSM_KEYED_LAYERS: readonly string[] = [MATCHED_LAYER, DELETION_LAYER];
 
 // The first zoom with full tags; below it, the overview.
 export const DETAIL_ZOOM = 13;
 
 // The relations the app has colours and words for. The pipeline may add
-// more, which the app shows as "other". deletion_candidate rows have no
-// AllThePlaces side and so aren't in conflated.pmtiles at all.
-export const KNOWN_RELATIONS = ['same', 'missing_in_osm', 'located_in'] as const;
+// more, which the app shows as "other".
+export const KNOWN_RELATIONS = ['same', 'missing_in_osm', 'located_in', 'deletion_candidate'] as const;
 export type KnownRelation = (typeof KNOWN_RELATIONS)[number];
 
 export function isKnownRelation(relation: string): relation is KnownRelation {
@@ -45,9 +57,17 @@ export type Properties = Record<string, string | number | boolean>;
 // What the map's own rendered feature says about a row, at any zoom.
 export interface OverviewFacts {
   relation: string;
+  // Empty for a deletion candidate, which has no AllThePlaces side.
   spider: string;
   importance?: number;
   osm?: { type: OsmType; id: number };
+  // Why a deletion candidate was flagged.
+  rule?: string;
+}
+
+// The relations whose rows are selected by their OpenStreetMap object.
+export function isOsmKeyed(relation: string): boolean {
+  return relation === 'same' || relation === 'deletion_candidate';
 }
 
 // The `position` of an AllThePlaces point moved east from a Google Maps
@@ -75,6 +95,11 @@ export interface ConflatedRecord {
   // The connector line's length; undefined when there is no line, which
   // the pipeline omits for offsets under 5 m.
   offsetMeters?: number;
+  // For a deletion candidate: why it was flagged, and for the wikidata
+  // and name rules, the share of OpenStreetMap features of that brand
+  // nearby that AllThePlaces matched.
+  rule?: string;
+  localShare?: number;
 }
 
 const OSM_TYPES: readonly string[] = ['node', 'way', 'relation'];
@@ -94,15 +119,16 @@ export function overviewFacts(props: Properties): OverviewFacts {
   if (typeof props.importance === 'number') facts.importance = props.importance;
   const osm = osmRef(props);
   if (osm) facts.osm = osm;
+  if (typeof props.rule === 'string') facts.rule = props.rule;
   return facts;
 }
 
-// What clicking a feature selects. A matched row is the OpenStreetMap
-// object. Everything else, including a located_in row, whose OSM ID
-// belongs to its host and is shared with every other store inside it, is
-// the AllThePlaces place at the given position.
+// What clicking a feature selects. A matched row or a deletion candidate
+// is the OpenStreetMap object. Everything else, including a located_in
+// row, whose OSM ID belongs to its host and is shared with every other
+// store inside it, is the AllThePlaces place at the given position.
 export function selectionFor(facts: OverviewFacts, position: Position): Selection {
-  if (facts.relation === 'same' && facts.osm) return { kind: 'osm', ...facts.osm };
+  if (isOsmKeyed(facts.relation) && facts.osm) return { kind: 'osm', ...facts.osm };
   return { kind: 'atp', spider: facts.spider, lng: position[0]!, lat: position[1]! };
 }
 
@@ -196,6 +222,8 @@ function assemble(parts: TileFeature[]): ConflatedRecord {
     osmTags: {},
   };
   if (typeof first.fid === 'number') record.fid = first.fid;
+  if (typeof first.rule === 'string') record.rule = first.rule;
+  if (typeof first.local_share === 'number') record.localShare = first.local_share;
   for (const part of parts) {
     const props = part.properties;
     switch (props.part) {
@@ -251,8 +279,9 @@ function groupByFid(features: TileFeature[], fids: Set<number>): TileFeature[][]
 
 // Whether a record has both of its sides: a matched or located_in row
 // whose AllThePlaces point or OpenStreetMap shape sits in another tile
-// lacks one.
+// lacks one. A deletion candidate only has the OpenStreetMap side.
 export function isComplete(record: ConflatedRecord): boolean {
+  if (record.relation === 'deletion_candidate') return record.osm !== undefined;
   const needsOsm = record.relation === 'same' || record.relation === 'located_in';
   return record.atpPosition !== undefined && (!needsOsm || record.osm !== undefined);
 }
@@ -276,14 +305,15 @@ export function isAtSelection(record: ConflatedRecord, selection: Selection): bo
 
 // Finds the records for a selection among the features of the detail
 // tiles around it. An OpenStreetMap selection yields every row matched to
-// that object (usually one); an AllThePlaces selection yields the row of
+// that object (usually one), or its deletion_candidate row; an
+// AllThePlaces selection yields the row of
 // the nearest AllThePlaces point of the same spider, or nothing.
 export function findRecords(features: TileFeature[], selection: Selection): ConflatedRecord[] {
   const fids = new Set<number>();
   if (selection.kind === 'osm') {
     for (const f of features) {
       const p = f.properties;
-      if (f.layer === MATCHED_LAYER && p['osm:type'] === selection.type && p['osm:id'] === selection.id) {
+      if (OSM_KEYED_LAYERS.includes(f.layer) && p['osm:type'] === selection.type && p['osm:id'] === selection.id) {
         if (typeof p.fid === 'number') fids.add(p.fid);
       }
     }
