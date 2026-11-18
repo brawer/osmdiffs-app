@@ -8,6 +8,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { BarList, Compass, Histogram, StackedBar, type Bar } from '../../components/charts/charts.tsx';
 import { fmt } from '../../components/charts/format.ts';
+import { DeletionCandidates } from './DeletionCandidates.tsx';
 import Link from '../../components/Link.tsx';
 import { toView } from '../../components/linkTo.ts';
 import type { Bbox } from '../../lib/data/bbox.ts';
@@ -286,7 +287,7 @@ export default function SpiderPage({ stats: s, bins, conflatedUrl, onZoomTo }: S
                 <th className="num">ATP</th>
                 <th className="num">OSM</th>
                 <th className="num">Matched</th>
-                <th className="num" title="Deletion candidates">Del.</th>
+                <th className="num" title="Deletion candidates: by Wikidata ID, then + those by name">Del.</th>
               </tr>
             </thead>
             <tbody>
@@ -305,11 +306,18 @@ export default function SpiderPage({ stats: s, bins, conflatedUrl, onZoomTo }: S
                   <td className="num">{fmt(b.atpFeatures)}</td>
                   <td className="num">{b.osmFeatures === null ? '–' : fmt(b.osmFeatures)}</td>
                   <td className="num">{fmt(b.same + b.locatedIn)}</td>
-                  <td className="num">{b.deletionCandidates === null ? '–' : fmt(b.deletionCandidates)}</td>
+                  <td className="num">
+                    <DeletionCandidates brand={b} />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="stats__note">
+            Del. counts the deletion candidates with the brand’s Wikidata ID, then, after a plus, those without any ID
+            whose brand, operator or network name the spider’s features also have: weaker evidence, and of any kind of
+            feature.
+          </p>
         </Section>
       )}
 

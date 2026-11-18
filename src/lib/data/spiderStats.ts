@@ -36,7 +36,15 @@ export interface BrandCount {
   locatedIn: number;
   missingInOsm: number;
   osmFeatures: number | null;
+  // Deletion candidates with this Wikidata ID in the country; null for
+  // the row without an ID.
   deletionCandidates: number | null;
+  // Deletion candidates without any Wikidata ID whose brand, operator or
+  // network name one of the spider's features of this brand also has.
+  // Disjoint from deletionCandidates, but weaker evidence, and the kind
+  // of feature isn't compared. Null if none of the brand's features has a
+  // name, and in files from before brawer/osmdiffs#1002.
+  deletionCandidatesByName: number | null;
   offsetEastM: number | null;
   offsetNorthM: number | null;
   bbox: Bbox | null;
@@ -214,6 +222,7 @@ export function toSpiderStats(r: Raw): SpiderStats {
       missingInOsm: count(x.missing_in_osm),
       osmFeatures: num(x.osm_features),
       deletionCandidates: num(x.deletion_candidates),
+      deletionCandidatesByName: num(x.deletion_candidates_by_name),
       offsetEastM: num(x.offset_east_m),
       offsetNorthM: num(x.offset_north_m),
       bbox: bbox(x.bbox),

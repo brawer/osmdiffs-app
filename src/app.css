@@ -1097,3 +1097,9 @@ button.legend-card__row:hover {
 .compass__tip {
   fill: var(--accent);
 }
+
+/* Deletion candidates matched by name only: weaker evidence than a
+   shared Wikidata ID, so they read as secondary. */
+.deletion-candidates__by-name {
+  color: var(--ink-faint);
+}
