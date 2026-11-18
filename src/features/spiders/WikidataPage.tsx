@@ -7,6 +7,7 @@
 import Link from '../../components/Link.tsx';
 import { toSpider, toView } from '../../components/linkTo.ts';
 import { fmt } from '../../components/charts/format.ts';
+import { DeletionCandidates } from './DeletionCandidates.tsx';
 import type { BrandCount, SpiderStatsFile } from '../../lib/data/spiderStats.ts';
 import { coverageOf } from './spiderTable.ts';
 
@@ -42,7 +43,7 @@ export default function WikidataPage({ file, qid }: { file: SpiderStatsFile; qid
               <th className="num">OSM</th>
               <th className="num">Matched</th>
               <th className="num">Missing</th>
-              <th className="num" title="Deletion candidates">
+              <th className="num" title="Deletion candidates: by Wikidata ID, then + those by name">
                 Del.
               </th>
             </tr>
@@ -58,7 +59,9 @@ export default function WikidataPage({ file, qid }: { file: SpiderStatsFile; qid
                 <td className="num">{b.osmFeatures === null ? '–' : fmt(b.osmFeatures)}</td>
                 <td className="num">{fmt(b.same + b.locatedIn)}</td>
                 <td className="num">{fmt(b.missingInOsm)}</td>
-                <td className="num">{b.deletionCandidates === null ? '–' : fmt(b.deletionCandidates)}</td>
+                <td className="num">
+                  <DeletionCandidates brand={b} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -67,7 +70,9 @@ export default function WikidataPage({ file, qid }: { file: SpiderStatsFile; qid
       {rows.length > 0 && (
         <p className="stats__note">
           OSM counts features with this ID in the country, of the same kinds as the spider’s. Highlighted rows have more
-          than twice as many in OpenStreetMap as in AllThePlaces.
+          than twice as many in OpenStreetMap as in AllThePlaces. Del. counts the deletion candidates with this ID, then, after a
+          plus, those without any ID whose brand, operator or network name the spider’s features also have: weaker
+          evidence, and of any kind of feature.
         </p>
       )}
     </div>

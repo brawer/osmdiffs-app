@@ -9,8 +9,8 @@ import { bboxBounds } from './bbox.ts';
 import { distanceBins, readSpiderStats, toSpiderStats } from './spiderStats.ts';
 
 // Written by `osmdiffs conflate` from the pipeline's own test data.
-function fixture(): ArrayBuffer {
-  const b = readFileSync(new URL('./testdata/spider-stats.parquet', import.meta.url));
+function fixture(name = 'spider-stats.parquet'): ArrayBuffer {
+  const b = readFileSync(new URL(`./testdata/${name}`, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 }
 
@@ -44,9 +44,23 @@ describe('readSpiderStats', () => {
       missingInOsm: 0,
     });
     expect(denner.brands).toEqual([
-      expect.objectContaining({ country: 'CH', wikidataId: 'Q379911', name: 'Denner', osmFeatures: 1 }),
+      expect.objectContaining({
+        country: 'CH',
+        wikidataId: 'Q379911',
+        name: 'Denner',
+        osmFeatures: 2,
+        deletionCandidates: 1,
+        deletionCandidatesByName: 0,
+      }),
     ]);
     expect(denner.datasetAttributes?.['spider:lineage']).toBe('S_ATP_BRANDS');
+  });
+
+  it('reads a file from before deletion candidates by name', async () => {
+    const { spiders } = await readSpiderStats(fixture('spider-stats-before-osmdiffs-1002.parquet'));
+    const brands = spiders.flatMap((s) => s.brands);
+    expect(brands.length).toBeGreaterThan(0);
+    for (const b of brands) expect(b.deletionCandidatesByName).toBeNull();
   });
 
   it('keeps the funnel adding up', async () => {
@@ -86,6 +100,22 @@ describe('toSpiderStats', () => {
     expect(s.sharedPositionsSameKind).toBeNull();
     expect(s.sharedOsmFeaturesSameKind).toBeNull();
     expect(s.openingHoursTopValue).toBeNull();
+    // Nor deletion candidates by name, from before brawer/osmdiffs#1002.
+    expect(s.brands[0]?.deletionCandidatesByName).toBeNull();
+  });
+
+  it('reads deletion candidates by name, also for brands without an ID', () => {
+    const s = toSpiderStats({
+      spider: 'x',
+      brands: [
+        { country: 'CH', wikidata_id: 'Q1', deletion_candidates: 3n, deletion_candidates_by_name: 5n },
+        { country: 'CH', wikidata_id: null, deletion_candidates: null, deletion_candidates_by_name: 2n },
+      ],
+    });
+    expect(s.brands.map((b) => [b.deletionCandidates, b.deletionCandidatesByName])).toEqual([
+      [3, 5],
+      [null, 2],
+    ]);
   });
 
   it('reads the same-kind counts and the top opening hours', () => {

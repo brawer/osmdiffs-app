@@ -38,6 +38,7 @@ function brand(overrides: Partial<BrandCount>): BrandCount {
     missingInOsm: 0,
     osmFeatures: 50,
     deletionCandidates: 0,
+    deletionCandidatesByName: 0,
     offsetEastM: 0,
     offsetNorthM: 0,
     bbox: null,
