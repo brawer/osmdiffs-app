@@ -861,8 +861,14 @@ button.legend-card__row:hover {
   overflow-wrap: break-word;
 }
 
-.stats-table__row--flagged td {
+.stats-table__row--flagged td,
+.stats-table__cell--flagged {
   background: color-mix(in srgb, var(--rel-missing) 10%, transparent);
+}
+
+.stats-table__cell--flagged {
+  color: var(--rel-missing);
+  font-weight: 600;
 }
 
 /* Flags: a chip per flag, tinted by its likely cause. */
@@ -1062,6 +1068,35 @@ button.legend-card__row:hover {
 .tag-bars__value {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* Under a bar split by kind, such as opening_hours: a count per kind. */
+.tag-bars__kinds {
+  display: grid;
+  grid-template-columns: minmax(0, 9em) 1fr 3em;
+  gap: 8px;
+  padding: 0 0 6px;
+}
+
+.tag-bars__kinds-list {
+  grid-column: 2 / 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-bars__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: help;
+}
+
+.tag-bars__kind .stats__swatch {
+  margin-left: 0;
 }
 
 .compass {

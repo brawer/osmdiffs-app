@@ -11,7 +11,7 @@
 // spiders; most limits sat near the median. Now each flag asks for enough
 // features to mean something, and fires on a few percent of spiders.
 
-import type { BrandCount, SpiderStats } from './data/spiderStats.ts';
+import type { BrandCount, SpiderStats, ValueCount } from './data/spiderStats.ts';
 
 export type LikelyCause = 'spider' | 'matcher' | 'source' | 'license';
 
@@ -208,6 +208,50 @@ function quoteHours(value: string): string {
   return `“${value.length > max ? `${value.slice(0, max - 1)}…` : value}”`;
 }
 
+// Value quality (brawer/osmdiffs#1000): values the pipeline can't read,
+// and one value given to many features. The thresholds are a first
+// guess, to be tuned on the next planet run, as for osmdiffs-app#25.
+export const VALUES_MIN_FEATURES = 20;
+// Share of a key's values that can't be read, above which it is flagged.
+export const UNPARSED_MAX_SHARE = 0.5;
+// Share of the most common value, above which it is suspicious for keys
+// whose value should differ from feature to feature. For name and brand,
+// a high share is normal.
+export const TOP_VALUE_MAX_SHARE = 0.5;
+export const SHARED_VALUE_KEYS = new Set(['phone', 'email', 'opening_hours', 'addr:street']);
+// The keys the shared-contact flag looks at; opening_hours has its own
+// flag, and a shared street is only a hint.
+const SHARED_CONTACT_KEYS = ['phone', 'email'];
+
+export function unparsedShare(v: ValueCount): number | null {
+  return v.unparsed === null || v.atp === 0 ? null : v.unparsed / v.atp;
+}
+
+export function topValueShare(v: ValueCount): number | null {
+  return v.atp === 0 ? null : v.topValueAtp / v.atp;
+}
+
+export function hasManyUnparsed(v: ValueCount): boolean {
+  return v.atp >= VALUES_MIN_FEATURES && (unparsedShare(v) ?? 0) > UNPARSED_MAX_SHARE;
+}
+
+export function hasSuspiciousTopValue(v: ValueCount): boolean {
+  return SHARED_VALUE_KEYS.has(v.key) && v.atp >= VALUES_MIN_FEATURES && (topValueShare(v) ?? 0) > TOP_VALUE_MAX_SHARE;
+}
+
+// Keys with many values that can't be read, the worst first.
+export function badValueKeys(s: SpiderStats): ValueCount[] {
+  return s.values.filter(hasManyUnparsed).sort((a, b) => unparsedShare(b)! - unparsedShare(a)!);
+}
+
+// phone and email keys that most features share one value of, the way
+// a spider may give its head office's number to every store.
+export function sharedContactKeys(s: SpiderStats): ValueCount[] {
+  return s.values
+    .filter((v) => SHARED_CONTACT_KEYS.includes(v.key) && hasSuspiciousTopValue(v))
+    .sort((a, b) => topValueShare(b)! - topValueShare(a)!);
+}
+
 // Minimum sizes, below which a share says little.
 const MIN_MATCHES = 20;
 const MIN_ROWS = 20;
@@ -285,6 +329,28 @@ export const FLAGS: Flag[] = [
         ? `${share} of features have the same opening hours`
         : `${share} of features have ${quoteHours(s.openingHoursTopValue)}`;
     },
+  },
+  {
+    id: 'bad-values',
+    label: 'Unreadable values',
+    likelyCause: 'spider',
+    test: (s) => badValueKeys(s).length > 0,
+    explain: (s) => {
+      const keys = badValueKeys(s);
+      const [worst] = keys;
+      const more = keys.length > 1 ? `; also ${keys.slice(1).map((v) => `${v.key} (${percent(v.unparsed!, v.atp)})`).join(', ')}` : '';
+      return `${percent(worst!.unparsed!, worst!.atp)} of ${worst!.key} values can’t be read${more}`;
+    },
+  },
+  {
+    id: 'shared-contact',
+    label: 'Shared phone or email',
+    likelyCause: 'spider',
+    test: (s) => sharedContactKeys(s).length > 0,
+    explain: (s) =>
+      sharedContactKeys(s)
+        .map((v) => `${percent(v.topValueAtp, v.atp)} of features with ${v.key} have the same one`)
+        .join('; '),
   },
   {
     id: 'chance',

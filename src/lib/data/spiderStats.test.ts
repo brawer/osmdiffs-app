@@ -42,7 +42,12 @@ describe('readSpiderStats', () => {
       agreeing: 0,
       differing: 1,
       missingInOsm: 0,
+      kinds: [{ kind: 'unparsed', rows: 1 }],
     });
+    expect(denner.tags.find((t) => t.tag === 'name')?.kinds).toEqual([]);
+    expect(denner.values.find((v) => v.key === 'website')).toEqual({ key: 'website', atp: 1, unparsed: 0, topValueAtp: 1 });
+    // No reader for names.
+    expect(denner.values.find((v) => v.key === 'name')?.unparsed).toBeNull();
     expect(denner.brands).toEqual([
       expect.objectContaining({
         country: 'CH',
@@ -61,6 +66,15 @@ describe('readSpiderStats', () => {
     const brands = spiders.flatMap((s) => s.brands);
     expect(brands.length).toBeGreaterThan(0);
     for (const b of brands) expect(b.deletionCandidatesByName).toBeNull();
+  });
+
+  it('reads a file from before kinds and values as empty lists', async () => {
+    const { spiders } = await readSpiderStats(fixture('spider-stats-before-osmdiffs-1002.parquet'));
+    expect(spiders.some((s) => s.tags.length > 0)).toBe(true);
+    for (const s of spiders) {
+      expect(s.values).toEqual([]);
+      for (const t of s.tags) expect(t.kinds).toEqual([]);
+    }
   });
 
   it('keeps the funnel adding up', async () => {

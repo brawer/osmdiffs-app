@@ -19,12 +19,35 @@ export interface RuleCount {
   rows: number;
 }
 
+// How a tag's values agree or differ, such as `same_schedule` or `small`
+// for opening_hours; see OPENING_HOURS_KINDS.
+export interface KindCount {
+  kind: string;
+  rows: number;
+}
+
 export interface TagCount {
   tag: string;
   atp: number;
   agreeing: number;
   differing: number;
   missingInOsm: number;
+  // Empty for tags whose kinds aren't told apart, and in files from
+  // before brawer/osmdiffs#1000.
+  kinds: KindCount[];
+}
+
+// The quality of one key's values over all of a spider's rows, matched
+// or not, by the key as written.
+export interface ValueCount {
+  key: string;
+  // Rows whose ATP feature has the key.
+  atp: number;
+  // Of these, values that can't be read, such as phone numbers not in
+  // international format; null for keys without a reader, such as name.
+  unparsed: number | null;
+  // Rows with the most common value.
+  topValueAtp: number;
 }
 
 export interface BrandCount {
@@ -105,6 +128,8 @@ export interface SpiderStats {
   openingHoursTopValue: string | null;
   rules: RuleCount[];
   tags: TagCount[];
+  // Empty in files from before brawer/osmdiffs#1000.
+  values: ValueCount[];
   brands: BrandCount[];
 }
 
@@ -211,6 +236,13 @@ export function toSpiderStats(r: Raw): SpiderStats {
       agreeing: count(x.agreeing),
       differing: count(x.differing),
       missingInOsm: count(x.missing_in_osm),
+      kinds: list(x.kinds).map((k) => ({ kind: String(k.kind), rows: count(k.rows) })),
+    })),
+    values: list(r.values).map((x) => ({
+      key: String(x.key),
+      atp: count(x.atp),
+      unparsed: num(x.unparsed),
+      topValueAtp: count(x.top_value_atp),
     })),
     brands: list(r.brands).map((x) => ({
       country: str(x.country),
