@@ -6,14 +6,24 @@
 // The map beside it shows only this spider's features.
 
 import { Fragment, type ReactNode } from 'react';
-import { BarList, Compass, Histogram, StackedBar, type Bar } from '../../components/charts/charts.tsx';
+import { BarList, Compass, Histogram, StackedBar, type Bar, type Segment } from '../../components/charts/charts.tsx';
 import { fmt } from '../../components/charts/format.ts';
 import { DeletionCandidates } from './DeletionCandidates.tsx';
 import Link from '../../components/Link.tsx';
 import { toView } from '../../components/linkTo.ts';
 import type { Bbox } from '../../lib/data/bbox.ts';
-import type { BrandCount, SpiderStats } from '../../lib/data/spiderStats.ts';
-import { cameraCounts, describeOffset, flagsFor, hasGoogleCameraCoords, shiftedBrands } from '../../lib/flags.ts';
+import type { BrandCount, SpiderStats, TagCount } from '../../lib/data/spiderStats.ts';
+import {
+  cameraCounts,
+  describeOffset,
+  flagsFor,
+  hasGoogleCameraCoords,
+  hasManyUnparsed,
+  hasSuspiciousTopValue,
+  shiftedBrands,
+  topValueShare,
+  unparsedShare,
+} from '../../lib/flags.ts';
 import { FlagList } from './FlagChips.tsx';
 
 interface SpiderPageProps {
@@ -29,6 +39,92 @@ const SAME = 'var(--rel-same)';
 const LOCATED_IN = 'var(--rel-located-in)';
 const MISSING = 'var(--rel-missing)';
 const OTHER = 'var(--rel-other)';
+// Lighter and darker shades, for parts of "agrees" and "differs".
+const shade = (color: string, percent: number) => `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+const darker = (color: string) => `color-mix(in srgb, ${color} 70%, var(--ink))`;
+
+// How opening_hours values agree or differ (brawer/osmdiffs#1000), in
+// the order they are drawn. `same_schedule` is part of `agreeing`; the
+// others add up to `differing`.
+interface KindStyle {
+  label: string;
+  title: string;
+  color: string;
+}
+
+const SAME_SCHEDULE: KindStyle = {
+  label: 'Same week',
+  title: 'Different text, same weekly schedule, such as 24/7 and Mo-Su 00:00-24:00',
+  color: shade(SAME, 50),
+};
+
+const DIFFERING_KINDS: Record<string, KindStyle> = {
+  small: {
+    label: 'Up to 60 min',
+    title: 'Open on the same days, and at most 60 minutes differently on each day: usually fine to take from ATP',
+    color: shade(LOCATED_IN, 50),
+  },
+  over_60_min: {
+    label: 'Over 60 min',
+    title: 'Open on the same days, but more than 60 minutes differently on some day',
+    color: LOCATED_IN,
+  },
+  other_days: {
+    label: 'Other days',
+    title: 'Open on some day in one value and closed in the other',
+    color: darker(LOCATED_IN),
+  },
+  unparsed: {
+    label: 'Unparsed',
+    title: 'One of the values uses syntax we don’t read, such as months or comments',
+    color: shade(LOCATED_IN, 25),
+  },
+};
+
+// The stacked bar's segments for a tag, with "agrees" and "differs" split
+// by kind where the file tells kinds apart.
+function tagSegments(t: TagCount): Segment[] {
+  const rows = (kind: string) => t.kinds.find((k) => k.kind === kind)?.rows ?? 0;
+  const sameSchedule = Math.min(rows('same_schedule'), t.agreeing);
+  const segments: Segment[] = [{ label: 'Agrees', value: t.agreeing - sameSchedule, color: SAME }];
+  if (sameSchedule > 0) segments.push({ label: SAME_SCHEDULE.label, value: sameSchedule, color: SAME_SCHEDULE.color });
+  let split = 0;
+  for (const [kind, style] of Object.entries(DIFFERING_KINDS)) {
+    const value = rows(kind);
+    if (value === 0) continue;
+    segments.push({ label: `Differs: ${style.label.toLowerCase()}`, value, color: style.color });
+    split += value;
+  }
+  if (t.differing > split) segments.push({ label: 'Differs', value: t.differing - split, color: LOCATED_IN });
+  segments.push({ label: 'Missing in OSM', value: t.missingInOsm, color: OTHER });
+  return segments;
+}
+
+// Under a bar split by kind: how many rows of each kind, so that one can
+// tell "15 minutes later" from "closed on Sundays".
+function TagKinds({ t }: { t: TagCount }) {
+  const parts = [
+    ...(t.kinds.some((k) => k.kind === 'same_schedule' && k.rows > 0) ? [['same_schedule', SAME_SCHEDULE] as const] : []),
+    ...Object.entries(DIFFERING_KINDS),
+  ]
+    .map(([kind, style]) => ({ style, rows: t.kinds.find((k) => k.kind === kind)?.rows ?? 0 }))
+    .filter((p) => p.rows > 0);
+  if (parts.length === 0) return null;
+  return (
+    <li className="tag-bars__kinds">
+      <span className="tag-bars__kinds-list">
+        {parts.map(({ style, rows }) => (
+          <span key={style.label} className="tag-bars__kind" title={style.title}>
+            <span className="stats__swatch" style={{ background: style.color }} />
+            {style.label} {fmt(rows)}
+          </span>
+        ))}
+      </span>
+    </li>
+  );
+}
+
+const shareText = (share: number | null) => (share === null ? '–' : `${Math.round(100 * share)}%`);
 
 function funnel(s: SpiderStats): Bar[] {
   const bars: Bar[] = [{ label: 'In the dump', value: s.dumpFeatures ?? 0, color: OTHER }];
@@ -249,24 +345,66 @@ export default function SpiderPage({ stats: s, bins, conflatedUrl, onZoomTo }: S
         <Section title="Tags of matched features">
           <ul className="tag-bars">
             {s.tags.map((t) => (
-              <li key={t.tag} className="tag-bars__row">
-                <span className="tag-bars__tag">{t.tag}</span>
-                <StackedBar
-                  total={t.atp}
-                  segments={[
-                    { label: 'Agrees', value: t.agreeing, color: SAME },
-                    { label: 'Differs', value: t.differing, color: LOCATED_IN },
-                    { label: 'Missing in OSM', value: t.missingInOsm, color: OTHER },
-                  ]}
-                />
-                <span className="tag-bars__value">{t.atp > 0 ? `${Math.round((100 * t.agreeing) / t.atp)}%` : '–'}</span>
-              </li>
+              <Fragment key={t.tag}>
+                <li className="tag-bars__row">
+                  <span className="tag-bars__tag">{t.tag}</span>
+                  <StackedBar total={t.atp} segments={tagSegments(t)} />
+                  <span className="tag-bars__value">{t.atp > 0 ? `${Math.round((100 * t.agreeing) / t.atp)}%` : '–'}</span>
+                </li>
+                <TagKinds t={t} />
+              </Fragment>
             ))}
           </ul>
           <p className="stats__legend">
             <span className="stats__swatch" style={{ background: SAME }} /> agrees
             <span className="stats__swatch" style={{ background: LOCATED_IN }} /> differs
             <span className="stats__swatch" style={{ background: OTHER }} /> missing in OSM
+          </p>
+          {s.tags.some((t) => t.kinds.length > 0) && (
+            <p className="stats__note">
+              Opening hours are compared as weekly schedules. Lighter blue agrees in another notation; differences up to
+              60 minutes a day are usually fine to take from AllThePlaces, while other days mean a shop is open in one
+              and closed in the other.
+            </p>
+          )}
+        </Section>
+      )}
+
+      {s.values.length > 0 && (
+        <Section title="Values">
+          <table className="stats-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th className="num">Features</th>
+                <th className="num" title="Values that can’t be read, such as phone numbers not in international format">
+                  Unparsed
+                </th>
+                <th className="num" title="Share of features with the most common value">
+                  Top value
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.values.map((v) => (
+                <tr key={v.key}>
+                  <td>{v.key}</td>
+                  <td className="num">{fmt(v.atp)}</td>
+                  <td className={`num${hasManyUnparsed(v) ? ' stats-table__cell--flagged' : ''}`}>
+                    {v.unparsed === null ? '–' : `${fmt(v.unparsed)} (${shareText(unparsedShare(v))})`}
+                  </td>
+                  <td className={`num${hasSuspiciousTopValue(v) ? ' stats-table__cell--flagged' : ''}`}>
+                    {shareText(topValueShare(v))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="stats__note">
+            Over all of the spider’s features, matched or not, by the key as written. Unparsed values are ones we can’t
+            read, such as phone numbers not in international format or timestamps in start_date; a dash means we have
+            no reader for the key. A high top value share is normal for name and brand, but for phone, email, opening
+            hours or street it suggests the spider writes one value, such as its head office’s, for every feature.
           </p>
         </Section>
       )}

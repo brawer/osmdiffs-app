@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, expect, it } from 'vitest';
-import { toSpiderStats, type BrandCount, type SpiderStats } from './data/spiderStats.ts';
+import { toSpiderStats, type BrandCount, type SpiderStats, type ValueCount } from './data/spiderStats.ts';
 import { describeOffset, flagsFor, isAlwaysOpen } from './flags.ts';
 
 const BINS = [1, 10, 25, 50, 100, 250, 1000];
@@ -44,6 +44,10 @@ function brand(overrides: Partial<BrandCount>): BrandCount {
     bbox: null,
     ...overrides,
   };
+}
+
+function value(key: string, overrides: Partial<ValueCount> = {}): ValueCount {
+  return { key, atp: 100, unparsed: 0, topValueAtp: 1, ...overrides };
 }
 
 const ids = (s: SpiderStats) => flagsFor(s, BINS).map((f) => f.flag.id);
@@ -118,6 +122,31 @@ describe('flagsFor', () => {
   it('skips chains open around the clock', () => {
     for (const value of ['24/7', 'Mo-Su 00:00-24:00', '00:00-24:00']) {
       expect(ids(spider({ openingHoursTopShare: 1, openingHoursTopValue: value }))).not.toContain('same-hours');
+    }
+  });
+
+  it('flags values that can’t be read, naming the worst key first', () => {
+    const s = spider({
+      values: [value('phone', { unparsed: 60 }), value('start_date', { atp: 40, unparsed: 40 }), value('email')],
+    });
+    expect(flagsFor(s, BINS).find((f) => f.flag.id === 'bad-values')?.reason).toBe(
+      '100% of start_date values can’t be read; also phone (60%)',
+    );
+    expect(ids(spider({ values: [value('phone', { unparsed: 50 })] }))).not.toContain('bad-values');
+    expect(ids(spider({ values: [value('phone', { atp: 10, unparsed: 10 })] }))).not.toContain('bad-values');
+    expect(ids(spider({ values: [value('name', { unparsed: null })] }))).not.toContain('bad-values');
+  });
+
+  it('flags a phone number or email given to most features, like shell', () => {
+    const s = spider({ values: [value('phone', { topValueAtp: 95 }), value('email', { atp: 50, topValueAtp: 30 })] });
+    expect(flagsFor(s, BINS).find((f) => f.flag.id === 'shared-contact')?.reason).toBe(
+      '95% of features with phone have the same one; 60% of features with email have the same one',
+    );
+    expect(ids(spider({ values: [value('phone', { topValueAtp: 50 })] }))).not.toContain('shared-contact');
+    expect(ids(spider({ values: [value('phone', { atp: 10, topValueAtp: 10 })] }))).not.toContain('shared-contact');
+    // Normal for names and brands, and opening hours have their own flag.
+    for (const key of ['name', 'brand', 'opening_hours']) {
+      expect(ids(spider({ values: [value(key, { topValueAtp: 100 })] }))).not.toContain('shared-contact');
     }
   });
 
