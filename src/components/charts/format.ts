@@ -4,6 +4,13 @@
 const numberFormat = new Intl.NumberFormat('en');
 export const fmt = (n: number) => numberFormat.format(n);
 
+// A change such as "+1,234", "−560" or "±0"; `unit` follows, as in
+// "−12 pts".
+export function changeText(delta: number, unit = ''): string {
+  const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±';
+  return `${sign}${fmt(Math.abs(delta))}${unit ? ` ${unit}` : ''}`;
+}
+
 // Labels for bins bounded by `bounds`: "< 1", "1–10", ..., "≥ 1000".
 export function binLabels(bounds: number[]): string[] {
   return [

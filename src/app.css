@@ -1138,3 +1138,60 @@ button.legend-card__row:hover {
 .deletion-candidates__by-name {
   color: var(--ink-faint);
 }
+
+/* ---- Changes since the previous spider-stats file ---- */
+
+.change {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.change--bad {
+  color: var(--rel-missing);
+  font-weight: 600;
+}
+
+/* Under a value in the spider list. */
+.spider-table .change {
+  display: block;
+}
+
+.new-chip {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--ink-faint);
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  vertical-align: 1px;
+}
+
+.spider-filters__toggle {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.spider-filters__toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.spider-removed summary {
+  cursor: pointer;
+}
+
+.spider-removed ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}

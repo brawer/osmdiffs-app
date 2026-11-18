@@ -4,12 +4,14 @@
 // The panel content for the spider list, a spider page and a Wikidata
 // page, once the statistics are there.
 
+import { compare, previousOf, type Comparison } from '../../lib/changes.ts';
 import type { Bbox } from '../../lib/data/bbox.ts';
+import type { SpiderStatsFile } from '../../lib/data/spiderStats.ts';
 import type { View } from '../../lib/route.ts';
 import SpiderList from './SpiderList.tsx';
 import SpiderPage from './SpiderPage.tsx';
 import StatsStatus from './StatsStatus.tsx';
-import type { SpiderStatsState } from './useSpiderStats.ts';
+import type { PreviousState, SpiderStatsState } from './useSpiderStats.ts';
 import WikidataPage from './WikidataPage.tsx';
 
 interface SpiderViewsProps {
@@ -17,6 +19,17 @@ interface SpiderViewsProps {
   state: SpiderStatsState;
   conflatedUrl: string | undefined;
   onZoomTo: (bbox: Bbox) => void;
+}
+
+// One comparison per pair of files, kept while both are.
+const comparisons = new WeakMap<SpiderStatsFile, WeakMap<SpiderStatsFile, Comparison | null>>();
+
+function comparisonOf(file: SpiderStatsFile, previous: PreviousState): Comparison | null {
+  if (previous.status !== 'ready') return null;
+  let byPrevious = comparisons.get(file);
+  if (!byPrevious) comparisons.set(file, (byPrevious = new WeakMap()));
+  if (!byPrevious.has(previous.file)) byPrevious.set(previous.file, compare(file, previous.file));
+  return byPrevious.get(previous.file) ?? null;
 }
 
 export default function SpiderViews({ view, state, conflatedUrl, onZoomTo }: SpiderViewsProps) {
@@ -28,10 +41,11 @@ export default function SpiderViews({ view, state, conflatedUrl, onZoomTo }: Spi
       </div>
     );
   }
-  const { file } = state;
+  const { file, previous } = state;
+  const comparison = comparisonOf(file, previous);
   switch (view.kind) {
     case 'spiders':
-      return <SpiderList file={file} />;
+      return <SpiderList file={file} previous={previous} comparison={comparison} />;
     case 'spider': {
       const stats = file.spiders.find((s) => s.spider === view.spider);
       if (!stats) {
@@ -42,7 +56,18 @@ export default function SpiderViews({ view, state, conflatedUrl, onZoomTo }: Spi
           </div>
         );
       }
-      return <SpiderPage key={stats.spider} stats={stats} bins={file.distanceBinsM} conflatedUrl={conflatedUrl} onZoomTo={onZoomTo} />;
+      return (
+        <SpiderPage
+          key={stats.spider}
+          stats={stats}
+          bins={file.distanceBinsM}
+          since={file.previous}
+          previousState={previous}
+          previous={previousOf(comparison, stats.spider)}
+          conflatedUrl={conflatedUrl}
+          onZoomTo={onZoomTo}
+        />
+      );
     }
     case 'wikidata':
       return <WikidataPage file={file} qid={view.qid} />;

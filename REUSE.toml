@@ -69,9 +69,15 @@ SPDX-License-Identifier = "OFL-1.1"
 # test data in brawer/osmdiffs. Its counts, names and Wikidata IDs come
 # from OpenStreetMap and AllThePlaces extracts of a few Swiss places.
 # spider-stats-before-osmdiffs-1002.parquet is an older one, without
-# deletion_candidates_by_name.
+# deletion_candidates_by_name. spider-stats-20251229-a1b2c3d4.parquet,
+# which spider-stats.parquet names as its predecessor, was made from it
+# with fewer spiders and other counts.
 [[annotations]]
-path = ["src/lib/data/testdata/spider-stats.parquet", "src/lib/data/testdata/spider-stats-before-osmdiffs-1002.parquet"]
+path = [
+    "src/lib/data/testdata/spider-stats.parquet",
+    "src/lib/data/testdata/spider-stats-before-osmdiffs-1002.parquet",
+    "src/lib/data/testdata/spider-stats-20251229-a1b2c3d4.parquet",
+]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "OpenStreetMap contributors"
 SPDX-License-Identifier = "ODbL-1.0"

@@ -143,7 +143,7 @@ export default function App() {
   const spider = view.kind === 'spider' ? view.spider : undefined;
   // Also for an unmatched place, which may be of a spider whose positions
   // look copied from Google Maps.
-  const stats = useSpiderStats(datapackage, view.kind !== 'map' || selRelation === 'missing_in_osm');
+  const stats = useSpiderStats(datapackage, view.kind !== 'map' || selRelation === 'missing_in_osm', view.kind === 'spiders' || view.kind === 'spider');
   const selStats =
     firstRecord && stats.status === 'ready'
       ? stats.file.spiders.find((s) => s.spider === firstRecord.spider)

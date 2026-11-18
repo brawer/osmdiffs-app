@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, expect, it } from 'vitest';
+import { compare } from '../../lib/changes.ts';
 import { toSpiderStats } from '../../lib/data/spiderStats.ts';
 import { allCountries, filterRows, sortRows, spiderRow } from './spiderTable.ts';
 
@@ -83,5 +84,42 @@ describe('filterRows', () => {
 
   it('lists every country', () => {
     expect(allCountries(rows)).toEqual(['DE', 'FR']);
+  });
+});
+
+describe('changes since the previous file', () => {
+  const stats = (spider: string, features: number, same = features) =>
+    toSpiderStats({ spider, atp_features: features, dump_features: features, rows: features, same, missing_in_osm: features - same });
+  const now = [stats('steady', 1000), stats('halved', 500), stats('worse', 100, 50), stats('fresh', 10)];
+  const then = [stats('steady', 990), stats('halved', 1000), stats('worse', 100, 90), stats('gone', 20)];
+  const comparison = compare(
+    { spiders: now, previous: { name: 'p', url: 'p', date: '2026-11-09' }, distanceBinsM: BINS },
+    { spiders: then, previous: null, distanceBinsM: BINS },
+  );
+  const changed = now.map((s) => spiderRow(s, BINS, comparison));
+
+  it('gives each row its change, and marks new spiders', () => {
+    expect(changed.map((r) => [r.stats.spider, r.featuresChange, r.matchRateChange])).toEqual([
+      ['steady', 10, 0],
+      ['halved', -500, 0],
+      ['worse', 0, -40],
+      ['fresh', null, null],
+    ]);
+    expect(changed[3]!.previous).toBeNull();
+    expect(changed.filter((r) => r.flags.some((f) => f.flag.id === 'dropped')).map((r) => r.stats.spider)).toEqual([
+      'halved',
+      'worse',
+    ]);
+  });
+
+  it('sorts by the largest drop', () => {
+    expect(names(sortRows(changed, 'drop'))).toEqual(['halved', 'worse', 'fresh', 'steady']);
+  });
+
+  it('has no changes without a comparison', () => {
+    const row = spiderRow(now[1]!, BINS);
+    expect(row.previous).toBeUndefined();
+    expect(row.featuresChange).toBeNull();
+    expect(row.drop).toBe(0);
   });
 });

@@ -11,9 +11,26 @@
 // spiders; most limits sat near the median. Now each flag asks for enough
 // features to mean something, and fires on a few percent of spiders.
 
+import {
+  featureCount,
+  featuresDropped,
+  matchRate,
+  matchRateDropped,
+  type Previous,
+} from './changes.ts';
 import type { BrandCount, SpiderStats, ValueCount } from './data/spiderStats.ts';
 
 export type LikelyCause = 'spider' | 'matcher' | 'source' | 'license';
+
+// What flags about change compare against.
+export interface FlagContext {
+  // The spider in the previous file; see Previous.
+  previous: Previous;
+  // That file's date, such as 2026-11-09, if known.
+  since: string | null;
+}
+
+const NO_PREVIOUS: FlagContext = { previous: undefined, since: null };
 
 export interface Flag {
   id: string;
@@ -22,9 +39,9 @@ export interface Flag {
   // Says who is likely at fault where CAUSE_LABELS is too broad.
   causeLabel?: string;
   // Whether the flag applies; `bins` are the distance histogram's bounds.
-  test: (s: SpiderStats, bins: number[]) => boolean;
+  test: (s: SpiderStats, bins: number[], context: FlagContext) => boolean;
   // A one-line reason, with the numbers.
-  explain: (s: SpiderStats, bins: number[]) => string;
+  explain: (s: SpiderStats, bins: number[], context: FlagContext) => string;
   // Worth knowing, but not a problem to fix: not counted as a flag in
   // the spider list's order.
   info?: boolean;
@@ -271,6 +288,25 @@ export const FLAGS: Flag[] = [
         : `AllThePlaces reports ${s.atpFeatures ?? 0} features, the dump has ${s.dumpFeatures ?? 0}`,
   },
   {
+    id: 'dropped',
+    label: 'Dropped',
+    likelyCause: 'spider',
+    causeLabel: 'Likely the spider or its source',
+    test: (s, _, { previous }) => !!previous && (featuresDropped(s, previous) || matchRateDropped(s, previous)),
+    explain: (s, _, { previous, since }) => {
+      const when = since ? `since ${since}` : 'since last time';
+      const parts: string[] = [];
+      if (featuresDropped(s, previous!)) {
+        parts.push(`Features fell from ${featureCount(previous!)} to ${featureCount(s)} ${when}`);
+      }
+      if (matchRateDropped(s, previous!)) {
+        const pct = (rate: number | null) => `${Math.round(100 * (rate ?? 0))}%`;
+        parts.push(`${parts.length ? 'the' : 'The'} match rate fell from ${pct(matchRate(previous!))} to ${pct(matchRate(s))}${parts.length ? '' : ` ${when}`}`);
+      }
+      return parts.join('; ');
+    },
+  },
+  {
     id: 'shifted',
     label: 'Shifted',
     likelyCause: 'spider',
@@ -426,8 +462,10 @@ export interface RaisedFlag {
   reason: string;
 }
 
-export function flagsFor(s: SpiderStats, bins: number[]): RaisedFlag[] {
-  return FLAGS.filter((f) => f.test(s, bins)).map((flag) => ({ flag, reason: flag.explain(s, bins) }));
+// `context` is what flags about change compare against; without it they
+// don't fire.
+export function flagsFor(s: SpiderStats, bins: number[], context: FlagContext = NO_PREVIOUS): RaisedFlag[] {
+  return FLAGS.filter((f) => f.test(s, bins, context)).map((flag) => ({ flag, reason: flag.explain(s, bins, context) }));
 }
 
 export const CAUSE_LABELS: Record<LikelyCause, string> = {
