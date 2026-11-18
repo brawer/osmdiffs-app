@@ -8,10 +8,13 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { fmt } from '../../components/charts/format.ts';
 import Link from '../../components/Link.tsx';
 import { toSpider } from '../../components/linkTo.ts';
+import { featureCount, type Comparison } from '../../lib/changes.ts';
 import type { SpiderStatsFile } from '../../lib/data/spiderStats.ts';
 import { FLAGS } from '../../lib/flags.ts';
+import { Change, NewChip } from './Change.tsx';
 import { FlagChips } from './FlagChips.tsx';
 import { allCountries, filterRows, sortRows, spiderRow, type Filter, type SortKey } from './spiderTable.ts';
+import type { PreviousState } from './useSpiderStats.ts';
 
 // Rows drawn at first; a planet run has a few thousand spiders.
 const PAGE = 100;
@@ -34,7 +37,47 @@ const breakable = (name: string) =>
 
 const percent = (rate: number | null) => (rate === null ? '–' : `${Math.round(rate * 100)}%`);
 
-export default function SpiderList({ file }: { file: SpiderStatsFile }) {
+interface SpiderListProps {
+  file: SpiderStatsFile;
+  previous: PreviousState;
+  // The previous file's spiders, once loaded.
+  comparison: Comparison | null;
+}
+
+// What the list compares against, or why it doesn't.
+function ChangesNote({ file, previous, comparison }: SpiderListProps) {
+  const date = file.previous?.date;
+  const from = date ? `the file from ${date}` : 'the previous file';
+  if (previous.status === 'loading') return <p className="stats__note">Loading changes since {from}…</p>;
+  if (previous.status === 'failed') {
+    return <p className="stats__note">Couldn’t load {from}, so changes aren’t shown.</p>;
+  }
+  if (!comparison) return null;
+  const { removed } = comparison;
+  return (
+    <div className="stats__note">
+      Changes are since {from}.{' '}
+      {removed.length === 0 ? (
+        'No spider is gone since then.'
+      ) : (
+        <details className="spider-removed">
+          <summary>
+            {fmt(removed.length)} {removed.length === 1 ? 'spider is' : 'spiders are'} gone since then
+          </summary>
+          <ul>
+            {removed.map((s) => (
+              <li key={s.spider}>
+                {s.spider}: {fmt(featureCount(s))} features then
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+export default function SpiderList({ file, previous, comparison }: SpiderListProps) {
   const [filter, setFilter] = useState(remembered.filter);
   const [sort, setSort] = useState(remembered.sort);
   const [reverse, setReverse] = useState(remembered.reverse);
@@ -43,9 +86,15 @@ export default function SpiderList({ file }: { file: SpiderStatsFile }) {
     remembered = { filter, sort, reverse };
   }, [filter, sort, reverse]);
 
-  const rows = useMemo(() => file.spiders.map((s) => spiderRow(s, file.distanceBinsM)), [file]);
+  const rows = useMemo(
+    () => file.spiders.map((s) => spiderRow(s, file.distanceBinsM, comparison)),
+    [file, comparison],
+  );
+  const since = comparison?.ref.date ?? null;
+  // Without a previous file, the "largest drop" order means nothing.
+  const sortBy = sort === 'drop' && !comparison ? 'default' : sort;
   const countries = useMemo(() => allCountries(rows), [rows]);
-  const shown = useMemo(() => sortRows(filterRows(rows, filter), sort, reverse), [rows, filter, sort, reverse]);
+  const shown = useMemo(() => sortRows(filterRows(rows, filter), sortBy, reverse), [rows, filter, sortBy, reverse]);
   const flagged = rows.filter((r) => r.problems > 0).length;
 
   const update = (change: Partial<Filter>) => {
@@ -53,7 +102,7 @@ export default function SpiderList({ file }: { file: SpiderStatsFile }) {
     setLimit(PAGE);
   };
   const header = (key: SortKey, label: string, className = '') => {
-    const active = sort === key;
+    const active = sortBy === key;
     return (
       <th className={className} aria-sort={active ? (reverse ? 'descending' : 'ascending') : 'none'}>
         <button
@@ -81,6 +130,7 @@ export default function SpiderList({ file }: { file: SpiderStatsFile }) {
         {fmt(rows.length)} AllThePlaces spiders, {fmt(flagged)} with flags. Flagged spiders come first, larger ones
         higher.
       </p>
+      <ChangesNote file={file} previous={previous} comparison={comparison} />
 
       <div className="spider-filters">
         <input
@@ -107,6 +157,20 @@ export default function SpiderList({ file }: { file: SpiderStatsFile }) {
             </option>
           ))}
         </select>
+        {comparison && (
+          <button
+            type="button"
+            className="spider-filters__toggle"
+            aria-pressed={sortBy === 'drop'}
+            title={`Spiders that lost the largest share of their features or match rate since ${since ?? 'the previous file'} first`}
+            onClick={() => {
+              setSort(sortBy === 'drop' ? 'default' : 'drop');
+              setReverse(false);
+            }}
+          >
+            Largest drop first
+          </button>
+        )}
       </div>
 
       <table className="spider-table">
@@ -123,9 +187,16 @@ export default function SpiderList({ file }: { file: SpiderStatsFile }) {
             <tr key={r.stats.spider}>
               <td className="spider-table__name">
                 <Link to={toSpider(r.stats.spider)}>{breakable(r.stats.spider)}</Link>
+                {r.previous === null && <NewChip since={since} />}
               </td>
-              <td className="num">{fmt(r.features)}</td>
-              <td className="num">{percent(r.matchRate)}</td>
+              <td className="num">
+                {fmt(r.features)}
+                <Change delta={r.featuresChange} hideZero alarm={r.featuresDropped} />
+              </td>
+              <td className="num">
+                {percent(r.matchRate)}
+                <Change delta={r.matchRateChange} unit="pts" hideZero alarm={r.matchRateDropped} title="Percentage points" />
+              </td>
               <td>
                 <FlagChips flags={r.flags} />
               </td>

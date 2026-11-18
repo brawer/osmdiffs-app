@@ -11,8 +11,9 @@ import { fmt } from '../../components/charts/format.ts';
 import { DeletionCandidates } from './DeletionCandidates.tsx';
 import Link from '../../components/Link.tsx';
 import { toView } from '../../components/linkTo.ts';
+import { difference, matchRate, matchRatePoints, type Previous } from '../../lib/changes.ts';
 import type { Bbox } from '../../lib/data/bbox.ts';
-import type { BrandCount, SpiderStats, TagCount } from '../../lib/data/spiderStats.ts';
+import type { BrandCount, PreviousRef, SpiderStats, TagCount } from '../../lib/data/spiderStats.ts';
 import {
   cameraCounts,
   describeOffset,
@@ -24,11 +25,19 @@ import {
   topValueShare,
   unparsedShare,
 } from '../../lib/flags.ts';
+import { Change } from './Change.tsx';
 import { FlagList } from './FlagChips.tsx';
+import type { PreviousState } from './useSpiderStats.ts';
 
 interface SpiderPageProps {
   stats: SpiderStats;
   bins: number[];
+  // The file the current one names as its predecessor, if any.
+  since: PreviousRef | null;
+  // Whether that file has loaded.
+  previousState: PreviousState;
+  // This spider in it; see Previous.
+  previous: Previous;
   // conflated.parquet's URL, for the DuckDB snippet.
   conflatedUrl: string | undefined;
   // Moves the map to a brand's features in one country.
@@ -224,6 +233,64 @@ function CameraProbes({ s }: { s: SpiderStats }) {
   );
 }
 
+const rateText = (rate: number | null) => (rate === null ? '–' : `${Math.round(100 * rate)}%`);
+const countText = (n: number | null) => (n === null ? '–' : fmt(n));
+
+// Last time's values beside this time's, for the counts that show a
+// broken spider first.
+function SinceLastTime({ s, since, state, previous }: { s: SpiderStats; since: PreviousRef; state: PreviousState; previous: Previous }) {
+  const from = since.date ? `the file from ${since.date}` : 'the previous file';
+  if (state.status === 'loading') return <p className="stats__note">Loading {from}…</p>;
+  if (state.status === 'failed') return <p className="stats__note">Couldn’t load {from}.</p>;
+  if (previous === undefined) return null;
+  if (previous === null) return <p className="stats__note">New: {from} didn’t have this spider.</p>;
+  const counts: [string, number | null, number | null, boolean, string?][] = [
+    ['AllThePlaces features', previous.atpFeatures, s.atpFeatures, false, 'What AllThePlaces says the spider wrote'],
+    ['In the dump', previous.dumpFeatures, s.dumpFeatures, false],
+    ['Errors', previous.atpErrors, s.atpErrors, true, 'Errors that AllThePlaces logged for the spider'],
+    ['Conflated', previous.rows, s.rows, false],
+  ];
+  return (
+    <>
+      <table className="stats-table">
+        <thead>
+          <tr>
+            <th />
+            <th className="num">{since.date ?? 'Then'}</th>
+            <th className="num">Now</th>
+            <th className="num">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {counts.map(([label, then, now, riseIsBad, title]) => (
+            <tr key={label}>
+              <td title={title}>{label}</td>
+              <td className="num">{countText(then)}</td>
+              <td className="num">{countText(now)}</td>
+              <td className="num">
+                <Change delta={difference(now, then)} riseIsBad={riseIsBad} />
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td title="Same and located in, of all conflated features">Match rate</td>
+            <td className="num">{rateText(matchRate(previous))}</td>
+            <td className="num">{rateText(matchRate(s))}</td>
+            <td className="num">
+              <Change delta={matchRatePoints(s, previous)} unit="pts" title="Percentage points" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="stats__note">
+        Compared with {from}
+        {since.date ? '' : ` (${since.name})`}, the one published before this. A spider whose features halve, or whose
+        match rate drops, most likely broke at its source or in its conversion.
+      </p>
+    </>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="stats__section">
@@ -249,8 +316,8 @@ function Country({ brand, onZoomTo }: { brand: BrandCount; onZoomTo: (bbox: Bbox
   );
 }
 
-export default function SpiderPage({ stats: s, bins, conflatedUrl, onZoomTo }: SpiderPageProps) {
-  const flags = flagsFor(s, bins);
+export default function SpiderPage({ stats: s, bins, since, previousState, previous, conflatedUrl, onZoomTo }: SpiderPageProps) {
+  const flags = flagsFor(s, bins, { previous, since: since?.date ?? null });
   const shifted = new Set(shiftedBrands(s));
   const withOffset = s.brands.filter((b) => b.offsetEastM !== null && b.offsetNorthM !== null);
   const brands = [...s.brands].sort((a, b) => b.atpFeatures - a.atpFeatures);
@@ -273,6 +340,12 @@ export default function SpiderPage({ stats: s, bins, conflatedUrl, onZoomTo }: S
       <Section title="Flags">
         <FlagList flags={flags} />
       </Section>
+
+      {since && previousState.status !== 'none' && (
+        <Section title={since.date ? `Since ${since.date}` : 'Since last time'}>
+          <SinceLastTime s={s} since={since} state={previousState} previous={previous} />
+        </Section>
+      )}
 
       <Section title="What became of its features">
         <BarList bars={funnel(s)} />

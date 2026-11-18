@@ -6,13 +6,17 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { FileMetaData } from 'hyparquet';
 import { bboxBounds } from './bbox.ts';
-import { distanceBins, readSpiderStats, toSpiderStats } from './spiderStats.ts';
+import { dateInName, distanceBins, previousFile, readSpiderStats, toSpiderStats } from './spiderStats.ts';
 
 // Written by `osmdiffs conflate` from the pipeline's own test data.
 function fixture(name = 'spider-stats.parquet'): ArrayBuffer {
   const b = readFileSync(new URL(`./testdata/${name}`, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 }
+
+// What spider-stats.parquet names in `osmdiffs:previous`; a smaller file
+// made from it, with other counts, as last week's.
+const PREVIOUS_FIXTURE = 'spider-stats-20251229-a1b2c3d4.parquet';
 
 describe('readSpiderStats', () => {
   it('reads every spider, with the bins from the metadata', async () => {
@@ -188,6 +192,45 @@ describe('bboxBounds', () => {
       [177, -19],
       [181, -16],
     ]);
+  });
+});
+
+describe('the previous file', () => {
+  const meta = (value?: string) =>
+    ({ key_value_metadata: value === undefined ? [] : [{ key: 'osmdiffs:previous', value }] }) as unknown as FileMetaData;
+  const here = 'https://osmdiffs.example/data/spider-stats-20261116-0f0f0f0f.parquet';
+
+  it('resolves next to the current file, with the date in its name', () => {
+    expect(previousFile(meta('spider-stats-20261109-a1b2c3d4.parquet'), here)).toEqual({
+      name: 'spider-stats-20261109-a1b2c3d4.parquet',
+      url: 'https://osmdiffs.example/data/spider-stats-20261109-a1b2c3d4.parquet',
+      date: '2026-11-09',
+    });
+  });
+
+  it('is null without the key', () => {
+    expect(previousFile(meta(), here)).toBeNull();
+    expect(previousFile(meta(''), here)).toBeNull();
+  });
+
+  it('keeps a name it can’t resolve, and one without a date', () => {
+    expect(previousFile(meta('old.parquet'), '')).toEqual({ name: 'old.parquet', url: 'old.parquet', date: null });
+    expect(dateInName('spider-stats-2026110-x.parquet')).toBeNull();
+  });
+
+  it('is named in the fixture, which the previous one names none', async () => {
+    const url = 'https://osmdiffs.example/data/spider-stats.parquet';
+    const current = await readSpiderStats(fixture(), url);
+    expect(current.previous).toEqual({
+      name: PREVIOUS_FIXTURE,
+      url: `https://osmdiffs.example/data/${PREVIOUS_FIXTURE}`,
+      date: dateInName(PREVIOUS_FIXTURE),
+    });
+    const previous = await readSpiderStats(fixture(PREVIOUS_FIXTURE), url);
+    expect(previous.previous).toBeNull();
+    expect(previous.spiders.length).toBeLessThan(current.spiders.length);
+    // Nor in files from before brawer/osmdiffs#1004.
+    expect((await readSpiderStats(fixture('spider-stats-before-osmdiffs-1002.parquet'), url)).previous).toBeNull();
   });
 });
 

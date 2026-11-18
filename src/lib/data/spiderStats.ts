@@ -133,8 +133,21 @@ export interface SpiderStats {
   brands: BrandCount[];
 }
 
+// The file published before this one, named in the metadata from
+// brawer/osmdiffs#1004 on; usually a week earlier.
+export interface PreviousRef {
+  // Its basename, such as spider-stats-20261109-a1b2c3d4.parquet.
+  name: string;
+  // Resolved next to the file that names it.
+  url: string;
+  // The date in its name, as 2026-11-09, or null if it has none.
+  date: string | null;
+}
+
 export interface SpiderStatsFile {
   spiders: SpiderStats[];
+  // Null in files from before brawer/osmdiffs#1004, and in the first.
+  previous: PreviousRef | null;
   // Upper bounds of the distance histogram bins, in meters: the first bin
   // counts distances below the first bound, the last one those at or
   // above the last bound.
@@ -275,11 +288,35 @@ export function distanceBins(metadata: FileMetaData): number[] {
   return values.length > 0 && values.every(Number.isFinite) ? values : DEFAULT_DISTANCE_BINS_M;
 }
 
-export async function readSpiderStats(file: ArrayBuffer | Awaited<ReturnType<typeof asyncBufferFromUrl>>) {
+// The date in a dated file name such as spider-stats-20261109-a1b2c3d4.parquet.
+export function dateInName(name: string): string | null {
+  const m = /(?:^|[^0-9])(\d{4})(\d{2})(\d{2})(?:[^0-9]|$)/.exec(name);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+// The file named in `osmdiffs:previous`, resolved against `url`, the
+// current file's own URL. Null if the key is missing or empty.
+export function previousFile(metadata: FileMetaData, url: string): PreviousRef | null {
+  const name = metadata.key_value_metadata?.find((kv) => kv.key === 'osmdiffs:previous')?.value?.trim();
+  if (!name) return null;
+  let resolved: string;
+  try {
+    resolved = new URL(name, url).href;
+  } catch {
+    // A relative or unknown base, as in tests: keep the name as it is.
+    resolved = name;
+  }
+  return { name, url: resolved, date: dateInName(name) };
+}
+
+// `url` is where the file came from, against which the previous file's
+// name resolves.
+export async function readSpiderStats(file: ArrayBuffer | Awaited<ReturnType<typeof asyncBufferFromUrl>>, url = '') {
   const metadata = await parquetMetadataAsync(file);
   const raw = await parquetReadObjects({ file, metadata, compressors: COMPRESSORS });
   const result: SpiderStatsFile = {
     spiders: raw.map((r) => toSpiderStats(r)),
+    previous: previousFile(metadata, url),
     distanceBinsM: distanceBins(metadata),
   };
   return result;
@@ -288,5 +325,5 @@ export async function readSpiderStats(file: ArrayBuffer | Awaited<ReturnType<typ
 export async function fetchSpiderStats(url: string): Promise<SpiderStatsFile> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GET ${url}: ${res.status}`);
-  return readSpiderStats(await res.arrayBuffer());
+  return readSpiderStats(await res.arrayBuffer(), url);
 }
