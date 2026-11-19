@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
+import type { LayerSpecification } from 'maplibre-gl';
 import { describe, expect, it } from 'vitest';
 import { basemapStyle } from '../../map/basemapStyle.ts';
 import { fade, fallbackMapColors } from '../../map/mapColors.ts';
 import { compareTags } from './compareTags.ts';
-import { conflationOverlay, INTERACTIVE_LAYER_IDS } from './conflationOverlay.ts';
+import { conflationOverlay, INTERACTIVE_LAYER_IDS, SPIDER_CELL_LAYER_IDS } from './conflationOverlay.ts';
 import type { ConflationOptions } from './conflationOverlay.ts';
 
 function fullStyle(options: ConflationOptions) {
@@ -96,6 +97,31 @@ describe('conflationOverlay', () => {
     expect(JSON.stringify(layer({ ...BASE, spider: 'denner_ch' }, 'deletion_candidate-overview-dot').filter)).toContain(
       '["get","spider"]',
     );
+  });
+
+  it("draws a spider's cells instead of its thinned overview, up to z8", () => {
+    const colors = fallbackMapColors();
+    const spider = { ...BASE, spider: 'denner_ch', hidden: new Set(['located_in'] as const) };
+    expect(validateStyleMin(fullStyle(spider))).toEqual([]);
+    expect(validateStyleMin(fullStyle({ ...spider, selection: { kind: 'osm', type: 'way', id: 5 } }))).toEqual([]);
+    const layers = conflationOverlay(spider).layers(colors);
+    const byId = (id: string) => layers.find((l) => l.id === id) as LayerSpecification & { filter: unknown; paint: Record<string, unknown> };
+    // The overview takes over where it is no longer thinned.
+    expect(byId('matched-overview-dot').minzoom).toBe(9);
+    const [outer, middle, core] = SPIDER_CELL_LAYER_IDS.map(byId);
+    expect(outer).toMatchObject({ 'source-layer': 'spider_cells', maxzoom: 9 });
+    expect(JSON.stringify(outer!.filter)).toContain('["==",["get","spider"],"denner_ch"]');
+    // Each disc counts its own relation and those inside it, except the
+    // ones the legend hides.
+    expect(JSON.stringify(outer!.paint['circle-radius'])).toContain('"same"');
+    expect(JSON.stringify(outer!.paint['circle-radius'])).not.toContain('"located_in"');
+    expect(JSON.stringify(middle!.paint['circle-radius'])).toContain('"missing_in_osm"');
+    expect(core!.paint['circle-color']).toBe(colors.relation.missing_in_osm);
+    // The plain map has no cells, and keeps its overview from z0.
+    const plain = conflationOverlay(BASE).layers(colors);
+    expect(plain.some((l) => l.id.startsWith('spider_cells'))).toBe(false);
+    expect(plain.find((l) => l.id === 'matched-overview-dot')?.minzoom).toBeUndefined();
+    expect(conflationOverlay(spider).interactiveLayerIds).toEqual(expect.arrayContaining(SPIDER_CELL_LAYER_IDS));
   });
 
   it('picks out a selected deletion candidate by its OpenStreetMap ID', () => {

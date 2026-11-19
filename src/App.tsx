@@ -19,6 +19,7 @@ import {
   DETAIL_ZOOM,
   MATCHED_LAYER,
   overviewFacts,
+  SPIDER_CELLS_LAYER,
   selectionFor,
   type KnownRelation,
   type OverviewFacts,
@@ -264,6 +265,14 @@ export default function App() {
     (feature: maplibregl.MapGeoJSONFeature | undefined, lngLat: maplibregl.LngLat) => {
       if (!feature || !map) {
         select(undefined);
+        return;
+      }
+      // A spider's cell stands for many places: zoom in until its places
+      // part, which at three zooms deeper fill about the screen.
+      if (feature.sourceLayer === SPIDER_CELLS_LAYER) {
+        const z = typeof feature.properties.z === 'number' ? feature.properties.z : Math.floor(map.getZoom());
+        const center = feature.geometry.type === 'Point' ? (feature.geometry.coordinates as [number, number]) : lngLat;
+        map.easeTo({ center, zoom: Math.max(map.getZoom(), z + 3) });
         return;
       }
       const facts = overviewFacts(feature.properties as Properties);
