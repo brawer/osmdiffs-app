@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.0](https://github.com/brawer/osmdiffs-app/compare/v1.4.0...v1.5.0) (2026-11-19)
+
+
+### 🆕 Features
+
+* draw a spider's cells on its page where the overview is thinned ([#41](https://github.com/brawer/osmdiffs-app/issues/41)) ([c38bf01](https://github.com/brawer/osmdiffs-app/commit/c38bf016234536ae29cbff9ac1b5bb0fa3cf6531))
+* show deletion candidates matched by name ([#35](https://github.com/brawer/osmdiffs-app/issues/35)) ([029755d](https://github.com/brawer/osmdiffs-app/commit/029755d88becb1b6d7cf80cf7c8e01c87737812a))
+* show how each spider changed since the previous spider-stats file ([#39](https://github.com/brawer/osmdiffs-app/issues/39)) ([a4ffab3](https://github.com/brawer/osmdiffs-app/commit/a4ffab3d81da756f5049e55e1e775d12b5b32fea))
+* show how opening hours differ, and value quality per key ([#38](https://github.com/brawer/osmdiffs-app/issues/38)) ([9cdd7fa](https://github.com/brawer/osmdiffs-app/commit/9cdd7fa16e13fdebb6f769ebd28f3fb1610f687b))
+
 ## [1.4.0](https://github.com/brawer/osmdiffs-app/compare/v1.3.0...v1.4.0) (2026-11-16)
 
 
