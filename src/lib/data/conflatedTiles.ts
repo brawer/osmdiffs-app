@@ -25,6 +25,14 @@
 // saying why it was flagged and, in the detail, `local_share` for the
 // `wikidata` and `name` rules. It joins its detail feature on
 // `osm:type`/`osm:id`, like a matched row.
+//
+// Next to those, `spider_cells` (brawer/osmdiffs#951) is for a map of one
+// spider, whose overview rows the shared thinning leaves sparse. At zoom
+// z0–8 it has one point per spider in each cell of a z+3 tile grid, at
+// the centroid of that spider's places there, with how many there are
+// (`n`) and how many of each relation (`same`, `missing_in_osm`,
+// `located_in`). Each point is in the tiles of its own zoom only, and
+// none is ever dropped. From z9 on, the overview has every row.
 
 import { VectorTile } from '@mapbox/vector-tile';
 import type { Geometry, Position } from 'geojson';
@@ -42,6 +50,13 @@ export const OSM_KEYED_LAYERS: readonly string[] = [MATCHED_LAYER, DELETION_LAYE
 
 // The first zoom with full tags; below it, the overview.
 export const DETAIL_ZOOM = 13;
+
+// One spider's places per grid cell, up to z8; from SPIDER_CELLS_END_ZOOM
+// on, the overview is no longer thinned, and has them all.
+export const SPIDER_CELLS_LAYER = 'spider_cells';
+export const SPIDER_CELLS_END_ZOOM = 9;
+// The relations a cell counts, beyond its total `n`.
+export const SPIDER_CELL_RELATIONS = ['same', 'missing_in_osm', 'located_in'] as const;
 
 // The relations the app has colours and words for. The pipeline may add
 // more, which the app shows as "other".
