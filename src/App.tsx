@@ -13,6 +13,7 @@ import LegendCard from './features/conflation/LegendCard.tsx';
 import { cameraCorrection } from './features/conflation/cameraCorrection.ts';
 import { openConflatedTiles, useConflatedDetail } from './features/conflation/useConflatedDetail.ts';
 import { useInViewCounts } from './features/conflation/useInViewCounts.ts';
+import { useOsmElement } from './features/conflation/useOsmElement.ts';
 import SpiderViews from './features/spiders/SpiderViews.tsx';
 import { useSpiderStats } from './features/spiders/useSpiderStats.ts';
 import {
@@ -126,6 +127,7 @@ export default function App() {
     [selectionKey],
   );
   const detail = useConflatedDetail(tiles, map, selection, click?.position, onExact);
+  const osmElement = useOsmElement(selection);
   const counts = useInViewCounts(map);
 
   const firstRecord = detail.status === 'ready' ? detail.records[0] : undefined;
@@ -334,7 +336,13 @@ export default function App() {
         onToggleCollapsed={() => setCollapsed((c) => !c)}
       >
         {selection ? (
-          <FeatureDetail selection={selection} facts={click?.facts} detail={detail} correction={correction} />
+          <FeatureDetail
+            selection={selection}
+            facts={click?.facts}
+            detail={detail}
+            correction={correction}
+            osm={osmElement}
+          />
         ) : view.kind === 'map' ? (
           <LegendCard counts={tiles ? counts : undefined} hidden={hidden} onToggle={toggleRelation} />
         ) : (

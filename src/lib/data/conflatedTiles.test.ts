@@ -6,6 +6,7 @@ import { fromVectorTileJs, type VectorTileFeatureLike } from '@maplibre/vt-pbf';
 import { describe, expect, it } from 'vitest';
 import {
   ConflatedTiles,
+  hasAllOsmTags,
   DETAIL_ZOOM,
   decodeTile,
   detailBlock,
@@ -172,6 +173,53 @@ describe('decodeTile and findRecords', () => {
     expect(record!.offsetMeters).toBeLessThan(30);
     expect(record!.atpPosition![0]).toBeCloseTo(KIOSK_ATP[0], 4);
     expect(record!.atpPosition![1]).toBeCloseTo(KIOSK_ATP[1], 4);
+  });
+
+  it('reads the OpenStreetMap version from a slimmer archive (brawer/osmdiffs#1026)', () => {
+    const slim = encode({
+      matched: [
+        {
+          point: KIOSK_ATP,
+          properties: { fid: 7, part: 'atp', relation: 'same', spider: 'valora', 'atp:name': 'k kiosk HB' },
+        },
+        {
+          point: KIOSK_OSM,
+          properties: {
+            fid: 7,
+            part: 'osm',
+            relation: 'same',
+            spider: 'valora',
+            'osm:type': 'node',
+            'osm:id': 4424939151,
+            'osm:version': 6,
+            'osm:name': 'k kiosk',
+            'osm:shop': 'newsagent',
+          },
+        },
+        // A connector line that only its fid ties to its two ends.
+        { line: [KIOSK_ATP, KIOSK_OSM], properties: { fid: 7, part: 'link' } },
+      ],
+    });
+    const [record] = findRecords(decodeTile(slim, X, Y, Z), { kind: 'osm', type: 'node', id: 4424939151 });
+    expect(record).toMatchObject({
+      osm: { type: 'node', id: 4424939151 },
+      osmVersion: 6,
+      osmTags: { name: 'k kiosk', shop: 'newsagent' },
+    });
+    expect(record!.offsetMeters).toBeGreaterThan(24);
+    expect(isComplete(record!)).toBe(true);
+  });
+
+  it('has no OpenStreetMap version in an older archive, and all the tags', () => {
+    const [record] = findRecords(features, { kind: 'osm', type: 'node', id: 4424939151 });
+    expect(record!.osmVersion).toBeUndefined();
+    expect(hasAllOsmTags(record!)).toBe(true);
+  });
+
+  it('tells a slimmed OpenStreetMap tag set', () => {
+    const record = { relation: 'same', spider: 'valora', atpTags: {}, osmVersion: 3 };
+    expect(hasAllOsmTags({ ...record, osmTags: { name: 'k kiosk', shop: 'newsagent' } })).toBe(false);
+    expect(hasAllOsmTags({ ...record, osmTags: { name: 'k kiosk', shop: 'newsagent', brand: 'k kiosk' } })).toBe(true);
   });
 
   it('reads a position moved east from a Google Maps camera center', () => {
