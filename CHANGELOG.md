@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/brawer/osmdiffs-app/compare/v1.5.0...v1.6.0) (2026-11-21)
+
+
+### 🆕 Features
+
+* fetch OpenStreetMap tags from the OSM API in the detail panel ([#47](https://github.com/brawer/osmdiffs-app/issues/47)) ([0f96507](https://github.com/brawer/osmdiffs-app/commit/0f965074ff8383547c0e82a395b03fe75363364c))
+* show the no_geometry, bad_geometry and no_kind counts from spider-stats ([#43](https://github.com/brawer/osmdiffs-app/issues/43)) ([52a3faa](https://github.com/brawer/osmdiffs-app/commit/52a3faa8c492159803bc8b14e693ac2d6aea09a0))
+
 ## [1.5.0](https://github.com/brawer/osmdiffs-app/compare/v1.4.0...v1.5.0) (2026-11-19)
 
 
