@@ -18,6 +18,13 @@
 // archive's max zoom, which is read from its header: z14 from
 // brawer/osmdiffs#956 on, z16 before.
 //
+// Detail features with `osm:type`/`osm:id` also carry `osm:version`
+// (brawer/osmdiffs#1026). Archives from then on may drop the other
+// `osm:*` tags but `osm:name` and the one saying what kind of place it is,
+// and connector lines may carry no tags at all; the app then fetches an
+// object's tags from the OpenStreetMap API (osmdiffs-app#45). Older
+// archives have neither the version nor the slimmer tags.
+//
 // A deletion_candidate row (brawer/osmdiffs#952) is an OpenStreetMap
 // feature that nothing in AllThePlaces matched, but that may be gone. It
 // has no AllThePlaces side, and so no `spider`: at every zoom it is one
@@ -107,6 +114,9 @@ export interface ConflatedRecord {
   // subtract this to get the one AllThePlaces gave.
   positionShiftDeg?: number;
   osm?: { type: OsmType; id: number };
+  // The OpenStreetMap object's version when the pipeline ran
+  // (brawer/osmdiffs#1026); undefined in archives from before.
+  osmVersion?: number;
   // The connector line's length; undefined when there is no line, which
   // the pipeline omits for offsets under 5 m.
   offsetMeters?: number;
@@ -217,10 +227,13 @@ function lineLength(geometry: Geometry): number | undefined {
   return total;
 }
 
+// Properties that say which OpenStreetMap object a feature is, not tags.
+const OSM_REF_KEYS: readonly string[] = ['osm:type', 'osm:id', 'osm:version'];
+
 function prefixed(props: Properties, prefix: string): Record<string, string> {
   const tags: Record<string, string> = {};
   for (const [key, value] of Object.entries(props)) {
-    if (key.startsWith(prefix) && key !== 'osm:type' && key !== 'osm:id') {
+    if (key.startsWith(prefix) && !OSM_REF_KEYS.includes(key)) {
       tags[key.slice(prefix.length)] = String(value);
     }
   }
@@ -256,6 +269,7 @@ function assemble(parts: TileFeature[]): ConflatedRecord {
         record.osmTags = prefixed(props, 'osm:');
         const osm = osmRef(props);
         if (osm) record.osm = osm;
+        if (typeof props['osm:version'] === 'number') record.osmVersion = props['osm:version'];
         break;
       }
       case 'link': {
@@ -267,6 +281,9 @@ function assemble(parts: TileFeature[]): ConflatedRecord {
         if (Object.keys(record.osmTags).length === 0) record.osmTags = prefixed(props, 'osm:');
         const osm = osmRef(props);
         if (osm && !record.osm) record.osm = osm;
+        if (record.osmVersion === undefined && typeof props['osm:version'] === 'number') {
+          record.osmVersion = props['osm:version'];
+        }
         break;
       }
     }
@@ -299,6 +316,19 @@ export function isComplete(record: ConflatedRecord): boolean {
   if (record.relation === 'deletion_candidate') return record.osm !== undefined;
   const needsOsm = record.relation === 'same' || record.relation === 'located_in';
   return record.atpPosition !== undefined && (!needsOsm || record.osm !== undefined);
+}
+
+// Whether a record's `osmTags` are its OpenStreetMap object's whole tag
+// set as of the pipeline run, as in archives from before
+// brawer/osmdiffs#1026, rather than only its name and the key that says
+// what kind of place it is. The archive doesn't say which it is, but only
+// archives from that change on carry `osm:version`, and a slimmed tag set
+// has at most one key besides `name`. An object with no more tags than
+// that is taken as slimmed too, which costs nothing: either way, the
+// archive has little to show for it.
+export function hasAllOsmTags(record: ConflatedRecord): boolean {
+  if (record.osmVersion === undefined) return true;
+  return Object.keys(record.osmTags).filter((key) => key !== 'name').length > 1;
 }
 
 // How close, in meters, a record's AllThePlaces point must be to an

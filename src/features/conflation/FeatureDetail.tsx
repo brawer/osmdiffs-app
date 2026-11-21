@@ -7,12 +7,18 @@
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import Link from '../../components/Link.tsx';
 import { toView } from '../../components/linkTo.ts';
-import { distanceMeters, type ConflatedRecord, type OverviewFacts } from '../../lib/data/conflatedTiles.ts';
+import {
+  distanceMeters,
+  hasAllOsmTags,
+  type ConflatedRecord,
+  type OverviewFacts,
+} from '../../lib/data/conflatedTiles.ts';
 import type { Selection } from '../../lib/route.ts';
 import type { CameraCorrection } from './cameraCorrection.ts';
 import { compareTags, type TagAgreement } from './compareTags.ts';
 import { relationLabel, relationToken } from './relations.ts';
 import type { DetailState } from './useConflatedDetail.ts';
+import type { OsmElementState } from './useOsmElement.ts';
 
 const AGREEMENT_MARKS: Record<TagAgreement, { mark: string; label: string }> = {
   same: { mark: '=', label: 'Same in both' },
@@ -64,8 +70,10 @@ function title(record: ConflatedRecord | undefined, selection: Selection): strin
 // the first that the feature has.
 const BRAND_KEYS = ['brand', 'operator', 'network'] as const;
 
-function flaggedBrand(record: ConflatedRecord, rule: string): { key: string; label: string; qid?: string } | undefined {
-  const tags = record.osmTags;
+function flaggedBrand(
+  tags: Record<string, string>,
+  rule: string,
+): { key: string; label: string; qid?: string } | undefined {
   for (const key of BRAND_KEYS) {
     if (rule === 'wikidata') {
       const qid = tags[`${key}:wikidata`];
@@ -78,8 +86,14 @@ function flaggedBrand(record: ConflatedRecord, rule: string): { key: string; lab
 }
 
 // Why a deletion candidate was flagged, in words.
-function RuleFacts({ record, rule }: { record: ConflatedRecord | undefined; rule: string }) {
-  const brand = record && (rule === 'wikidata' || rule === 'name') ? flaggedBrand(record, rule) : undefined;
+interface RuleFactsProps {
+  record: ConflatedRecord | undefined;
+  osmTags: Record<string, string> | undefined;
+  rule: string;
+}
+
+function RuleFacts({ record, osmTags, rule }: RuleFactsProps) {
+  const brand = osmTags && (rule === 'wikidata' || rule === 'name') ? flaggedBrand(osmTags, rule) : undefined;
   let why: ReactNode;
   switch (rule) {
     case 'wikidata':
@@ -169,12 +183,13 @@ function CorrectedPosition({ correction }: { correction: CameraCorrection }) {
 
 interface FactsProps {
   record: ConflatedRecord | undefined;
+  osmTags: Record<string, string> | undefined;
   correction: CameraCorrection | undefined;
   facts: OverviewFacts | undefined;
   selection: Selection;
 }
 
-function Facts({ record, facts, selection, correction }: FactsProps) {
+function Facts({ record, osmTags, facts, selection, correction }: FactsProps) {
   const spider = record?.spider ?? facts?.spider ?? (selection.kind === 'atp' ? selection.spider : undefined);
   const osm = record?.osm ?? facts?.osm ?? (selection.kind === 'osm' ? selection : undefined);
   const relation = record?.relation ?? facts?.relation;
@@ -218,19 +233,64 @@ function Facts({ record, facts, selection, correction }: FactsProps) {
           </dd>
         </>
       )}
-      {relation === 'deletion_candidate' && rule && <RuleFacts record={record} rule={rule} />}
+      {relation === 'deletion_candidate' && rule && <RuleFacts record={record} osmTags={osmTags} rule={rule} />}
       {correction && <CorrectedPosition correction={correction} />}
     </dl>
   );
 }
 
-function TagTable({ record }: { record: ConflatedRecord }) {
+// Where the OpenStreetMap side of the panel comes from: the object as it
+// is now, from the OpenStreetMap API, or else, while that is pending or
+// if it fails, the tags an older archive has, as of the pipeline run. An
+// archive from brawer/osmdiffs#1026 on may keep only a name and what kind
+// of place it is, too few to compare: then only the AllThePlaces side is
+// shown, rather than nearly every key as missing in OpenStreetMap.
+interface OsmSide {
+  // Undefined if there are none to show.
+  tags: Record<string, string> | undefined;
+  note?: string;
+}
+
+function osmSide(record: ConflatedRecord, osm: OsmElementState): OsmSide {
+  const archived = Object.keys(record.osmTags).length > 0 && hasAllOsmTags(record) ? record.osmTags : undefined;
+  const candidate = record.relation === 'deletion_candidate';
+  switch (osm.status) {
+    case 'found': {
+      const then = record.osmVersion;
+      if (then !== undefined && osm.version > then) {
+        const edited = `Someone edited this on OpenStreetMap after this run (version ${then} then, ${osm.version} now)`;
+        return {
+          tags: osm.tags,
+          note: candidate ? `${edited}.` : `${edited}, so some differences may already be fixed.`,
+        };
+      }
+      return { tags: osm.tags };
+    }
+    case 'deleted':
+      return { tags: archived, note: 'Someone deleted this from OpenStreetMap after this run.' };
+    case 'loading':
+      return { tags: archived, note: 'Loading the tags from OpenStreetMap…' };
+    case 'error':
+      return {
+        tags: archived,
+        note: archived
+          ? 'Couldn’t load the current tags from OpenStreetMap, so these are from this run.'
+          : 'Couldn’t load the tags from OpenStreetMap. Try again later.',
+      };
+    case 'idle':
+      return { tags: archived };
+  }
+}
+
+function TagTable({ record, osmTags }: { record: ConflatedRecord; osmTags: Record<string, string> | undefined }) {
   // A located_in row's OpenStreetMap tags are the host's, not this
   // place's: comparing them would be misleading. A deletion candidate
-  // has nothing to compare with, only its OpenStreetMap tags.
-  const compare = record.relation === 'same';
+  // has nothing to compare with, only its OpenStreetMap tags. Without
+  // OpenStreetMap tags to compare with, a matched row shows only its
+  // AllThePlaces side, rather than every key as missing in OpenStreetMap.
+  const compare = record.relation === 'same' && osmTags !== undefined;
   const osmOnly = record.relation === 'deletion_candidate';
-  const rows = osmOnly ? compareTags({}, record.osmTags) : compareTags(record.atpTags, compare ? record.osmTags : {});
+  const rows = osmOnly ? compareTags({}, osmTags ?? {}) : compareTags(record.atpTags, compare ? osmTags : {});
   if (rows.length === 0) return null;
   return (
     <table className="detail__tags">
@@ -276,17 +336,34 @@ interface FeatureDetailProps {
   detail: DetailState;
   // For a place whose position looks copied from Google Maps.
   correction?: CameraCorrection | undefined;
+  // The selected OpenStreetMap object as it is now.
+  osm?: OsmElementState;
 }
 
-export default function FeatureDetail({ selection, facts, detail, correction }: FeatureDetailProps) {
+export default function FeatureDetail({
+  selection,
+  facts,
+  detail,
+  correction,
+  osm = { status: 'idle' },
+}: FeatureDetailProps) {
   const records = detail.status === 'ready' ? detail.records : [];
   const first = records[0];
   const relation = first?.relation ?? facts?.relation;
+  // Only a matched row's or a deletion candidate's OpenStreetMap object
+  // is the selection, and so the one fetched.
+  const side = first && (relation === 'same' || relation === 'deletion_candidate') ? osmSide(first, osm) : undefined;
   return (
     <article className="detail">
       <h2 className="detail__title">{title(first, selection)}</h2>
       {relation && <RelationChip relation={relation} />}
-      <Facts record={first} facts={facts} selection={selection} correction={correction} />
+      <Facts
+        record={first}
+        osmTags={side ? side.tags : first?.osmTags}
+        facts={facts}
+        selection={selection}
+        correction={correction}
+      />
       {detail.status === 'loading' && <p className="detail__status">Loading details…</p>}
       {detail.status === 'unavailable' && <p className="detail__status">Details unavailable here.</p>}
       {detail.status === 'error' && <p className="detail__status">Couldn’t load the details. Try again later.</p>}
@@ -295,12 +372,13 @@ export default function FeatureDetail({ selection, facts, detail, correction }: 
           {records.length} AllThePlaces places are matched to this OpenStreetMap object. Showing the first.
         </p>
       )}
-      {relation === 'deletion_candidate' && (
+      {relation === 'deletion_candidate' && osm.status !== 'deleted' && (
         <p className="detail__status">
           Nobody has checked this yet. The place may well still be there, and only its match in AllThePlaces missed.
         </p>
       )}
-      {first && <TagTable record={first} />}
+      {side?.note && <p className="detail__status">{side.note}</p>}
+      {first && <TagTable record={first} osmTags={side ? side.tags : undefined} />}
     </article>
   );
 }
