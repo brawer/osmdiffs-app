@@ -79,7 +79,19 @@ export interface SpiderStats {
   atpErrors: number | null;
   dumpFeatures: number | null;
   notForOsm: number | null;
+  // Left out because AllThePlaces gives no geometry, because the geometry
+  // can't be used, or because no tag says what kind of place it is.
+  // Null in files from before brawer/osmdiffs#1013.
+  noGeometry: number | null;
+  badGeometry: number | null;
+  noKind: number | null;
+  // In files from before brawer/osmdiffs#1013, what is now noGeometry,
+  // badGeometry and noKind, and also the kinds that no matcher handles.
+  // Null in newer files.
   invalid: number | null;
+  // Features of a kind that no matcher handles. In files from before
+  // brawer/osmdiffs#1013, only those kept at import; the others were
+  // counted under invalid.
   noMatcher: number | null;
   inChina: number | null;
   datum: string | null;
@@ -212,6 +224,9 @@ export function toSpiderStats(r: Raw): SpiderStats {
     atpErrors: num(r.atp_errors),
     dumpFeatures: num(r.dump_features),
     notForOsm: num(r.not_for_osm),
+    noGeometry: num(r.no_geometry),
+    badGeometry: num(r.bad_geometry),
+    noKind: num(r.no_kind),
     invalid: num(r.invalid),
     noMatcher: num(r.no_matcher),
     inChina: num(r.in_china),
@@ -273,6 +288,12 @@ export function toSpiderStats(r: Raw): SpiderStats {
       bbox: bbox(x.bbox),
     })),
   };
+}
+
+// Whether the file counts features without geometry, with bad geometry
+// and without a kind apart, as files from brawer/osmdiffs#1013 on do.
+export function hasSplitLeftOut(s: SpiderStats): boolean {
+  return s.noGeometry !== null || s.badGeometry !== null || s.noKind !== null;
 }
 
 export function distanceBins(metadata: FileMetaData): number[] {

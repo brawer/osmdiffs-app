@@ -13,7 +13,7 @@ import Link from '../../components/Link.tsx';
 import { toView } from '../../components/linkTo.ts';
 import { difference, matchRate, matchRatePoints, type Previous } from '../../lib/changes.ts';
 import type { Bbox } from '../../lib/data/bbox.ts';
-import type { BrandCount, PreviousRef, SpiderStats, TagCount } from '../../lib/data/spiderStats.ts';
+import { hasSplitLeftOut, type BrandCount, type PreviousRef, type SpiderStats, type TagCount } from '../../lib/data/spiderStats.ts';
 import {
   cameraCounts,
   describeOffset,
@@ -137,10 +137,20 @@ const shareText = (share: number | null) => (share === null ? '–' : `${Math.ro
 
 function funnel(s: SpiderStats): Bar[] {
   const bars: Bar[] = [{ label: 'In the dump', value: s.dumpFeatures ?? 0, color: OTHER }];
-  const dropped: [string, number | null, string][] = [
+  type Dropped = [label: string, value: number | null, title: string];
+  // Files from before brawer/osmdiffs#1013 have one count for these,
+  // which also took in kinds that no matcher handles.
+  const leftOut: Dropped[] = hasSplitLeftOut(s)
+    ? [
+        ['No geometry', s.noGeometry, 'Left out: AllThePlaces gives no geometry'],
+        ['Bad geometry', s.badGeometry, 'Left out: the geometry doesn’t parse, or its coordinates are out of range'],
+        ['No kind', s.noKind, 'Left out: no tag says what kind of place this is'],
+      ]
+    : [['Invalid or unmatched', s.invalid, 'Left out: no usable geometry, no kind, or a kind no matcher handles']];
+  const dropped: Dropped[] = [
     ['License not for OSM', s.notForOsm, 'Left out: the license doesn’t allow OpenStreetMap'],
-    ['No usable geometry', s.invalid, 'Left out: no usable geometry, or no spider name'],
-    ['No matcher', s.noMatcher, 'Kept, but no matcher handles this kind of feature'],
+    ...leftOut,
+    ['No matcher', s.noMatcher, 'No matcher handles this kind of feature'],
   ];
   for (const [label, value, title] of dropped) {
     if (value) bars.push({ label, value, color: OTHER, depth: 1, title });

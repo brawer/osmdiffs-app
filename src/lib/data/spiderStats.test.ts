@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { FileMetaData } from 'hyparquet';
 import { bboxBounds } from './bbox.ts';
-import { dateInName, distanceBins, previousFile, readSpiderStats, toSpiderStats } from './spiderStats.ts';
+import { dateInName, distanceBins, hasSplitLeftOut, previousFile, readSpiderStats, toSpiderStats } from './spiderStats.ts';
 
 // Written by `osmdiffs conflate` from the pipeline's own test data.
 function fixture(name = 'spider-stats.parquet'): ArrayBuffer {
@@ -84,6 +84,20 @@ describe('readSpiderStats', () => {
   it('keeps the funnel adding up', async () => {
     const { spiders } = await readSpiderStats(fixture());
     for (const s of spiders) {
+      expect(hasSplitLeftOut(s)).toBe(true);
+      expect(s.invalid).toBeNull();
+      const leftOut = (s.noGeometry ?? 0) + (s.badGeometry ?? 0) + (s.noKind ?? 0);
+      expect((s.notForOsm ?? 0) + leftOut + (s.noMatcher ?? 0) + s.rows).toBe(s.dumpFeatures);
+      expect(s.same + s.locatedIn + s.missingInOsm).toBe(s.rows);
+      expect(s.missingNoCandidate + s.missingRejected + s.missingTaken).toBe(s.missingInOsm);
+    }
+  });
+
+  it('keeps the funnel adding up in a file from before the split of invalid', async () => {
+    const { spiders } = await readSpiderStats(fixture(PREVIOUS_FIXTURE));
+    for (const s of spiders) {
+      expect(hasSplitLeftOut(s)).toBe(false);
+      expect(s.noGeometry).toBeNull();
       expect((s.notForOsm ?? 0) + (s.invalid ?? 0) + (s.noMatcher ?? 0) + s.rows).toBe(s.dumpFeatures);
       expect(s.same + s.locatedIn + s.missingInOsm).toBe(s.rows);
       expect(s.missingNoCandidate + s.missingRejected + s.missingTaken).toBe(s.missingInOsm);
