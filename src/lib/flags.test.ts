@@ -64,6 +64,24 @@ describe('flagsFor', () => {
     expect(flag?.reason).toBe('AllThePlaces reports 120 features, the dump has 100');
   });
 
+  it('flags features without geometry, unlike features without a kind', () => {
+    // 60 of 200 in the dump, as in a spider that lost its coordinates.
+    const s = spider({ dumpFeatures: 200, atpFeatures: 200, noGeometry: 50, badGeometry: 10, noKind: 0, noMatcher: 40 });
+    const [flag] = flagsFor(s, BINS);
+    expect(flag?.flag.id).toBe('no-geometry');
+    expect(flag?.reason).toBe('25% of features have no geometry; 5% have a geometry that can’t be used');
+    expect(flagsFor(spider({ dumpFeatures: 200, atpFeatures: 200, noGeometry: 0, badGeometry: 60 }), BINS)[0]?.reason).toBe(
+      '30% of features have a geometry that can’t be used',
+    );
+    expect(flagsFor(spider({ dumpFeatures: 1000, atpFeatures: 1000, noGeometry: 400, badGeometry: 3 }), BINS)[0]?.reason).toBe(
+      '40% of features have no geometry; under 1% have a geometry that can’t be used',
+    );
+    // Neither a share of 25% or less, nor few features, nor no kind.
+    expect(ids(spider({ dumpFeatures: 200, atpFeatures: 200, noGeometry: 50 }))).not.toContain('no-geometry');
+    expect(ids(spider({ dumpFeatures: 40, atpFeatures: 40, rows: 21, same: 21, noGeometry: 19 }))).not.toContain('no-geometry');
+    expect(ids(spider({ dumpFeatures: 200, atpFeatures: 200, noKind: 100 }))).not.toContain('no-geometry');
+  });
+
   it('flags a shift, like c_and_a 150 m west', () => {
     const [flag] = flagsFor(spider({ offsetEastM: -155, offsetNorthM: 3 }), BINS);
     expect(flag?.flag.id).toBe('shifted');

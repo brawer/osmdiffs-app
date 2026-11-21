@@ -269,6 +269,24 @@ export function sharedContactKeys(s: SpiderStats): ValueCount[] {
     .sort((a, b) => topValueShare(b)! - topValueShare(a)!);
 }
 
+// Features left out for missing or bad geometry (brawer/osmdiffs#1013),
+// which point to a broken spider, unlike features without a kind or
+// without a matcher, which mostly mean we don't handle that data yet.
+// The thresholds are a first guess, to be tuned on the first planet run
+// with these counts, as for osmdiffs-app#25.
+export const GEOMETRY_MIN_FEATURES = 20;
+export const GEOMETRY_MAX_SHARE = 0.25;
+
+export function geometryLost(s: SpiderStats): number {
+  return (s.noGeometry ?? 0) + (s.badGeometry ?? 0);
+}
+
+function hasManyWithoutGeometry(s: SpiderStats): boolean {
+  const lost = geometryLost(s);
+  const dump = s.dumpFeatures ?? 0;
+  return lost >= GEOMETRY_MIN_FEATURES && dump > 0 && lost / dump > GEOMETRY_MAX_SHARE;
+}
+
 // Minimum sizes, below which a share says little.
 const MIN_MATCHES = 20;
 const MIN_ROWS = 20;
@@ -304,6 +322,24 @@ export const FLAGS: Flag[] = [
         parts.push(`${parts.length ? 'the' : 'The'} match rate fell from ${pct(matchRate(previous!))} to ${pct(matchRate(s))}${parts.length ? '' : ` ${when}`}`);
       }
       return parts.join('; ');
+    },
+  },
+  {
+    id: 'no-geometry',
+    label: 'No geometry',
+    likelyCause: 'spider',
+    test: hasManyWithoutGeometry,
+    explain: (s) => {
+      const dump = s.dumpFeatures ?? 0;
+      // A few among many would round to 0%.
+      const share = (n: number) => (n / dump < 0.005 ? 'under 1%' : percent(n, dump));
+      const parts = [
+        ...(s.noGeometry ? [`${share(s.noGeometry)} %s no geometry`] : []),
+        ...(s.badGeometry ? [`${share(s.badGeometry)} %s a geometry that can’t be used`] : []),
+      ];
+      // "of features have" only the first time.
+      const text = parts.map((p, i) => p.replace('%s', i === 0 ? 'of features have' : 'have')).join('; ');
+      return text.charAt(0).toUpperCase() + text.slice(1);
     },
   },
   {
